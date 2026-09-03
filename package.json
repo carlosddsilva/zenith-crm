@@ -42,7 +42,11 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "infra:check": "node --env-file=.env.local scripts/check-infra.mjs"
+    "infra:check": "node --env-file=.env.local scripts/check-infra.mjs",
+    "db:check": "node --env-file=.env.local scripts/check-database.mjs",
+    "db:generate": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate",
+    "db:studio": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs studio"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -56,10 +60,12 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
+    "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.30.0",
     "next": "16.2.12",
     "next-intl": "^4.13.5",
     "opus-recorder": "^8.0.5",
+    "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.10.1",
@@ -73,6 +79,7 @@
     "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
     "prettier": "^3.9.6",
