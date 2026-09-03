@@ -1,27 +1,31 @@
 {
-  "name": "wacrm",
+  "name": "zenith-crm",
   "version": "0.8.0",
   "private": true,
-  "description": "Self-hostable CRM template for WhatsApp built on Next.js and Supabase — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
+  "description": "Zenith CRM — CRM self-hosted multi-provider para WhatsApp, com PostgreSQL próprio e integrações Meta Cloud API, Evolution API e WaCalls.",
   "license": "MIT",
   "author": "Arnas Donauskas",
-  "homepage": "https://github.com/ArnasDon/wacrm",
+  "homepage": "https://github.com/carlosddsilva/zenith-crm",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ArnasDon/wacrm.git"
+    "url": "git+https://github.com/carlosddsilva/zenith-crm.git"
   },
   "bugs": {
-    "url": "https://github.com/ArnasDon/wacrm/issues"
+    "url": "https://github.com/carlosddsilva/zenith-crm/issues"
   },
   "keywords": [
+    "zenith-crm",
     "crm",
     "whatsapp",
-    "whatsapp-business-api",
+    "evolution-api",
+    "wacalls",
+    "postgresql",
     "nextjs",
+    "self-hosted",
+    "whatsapp-business-api",
     "supabase",
     "automation",
     "broadcast",
-    "self-hosted",
     "template"
   ],
   "engines": {
@@ -37,7 +41,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "infra:check": "node --env-file=.env.local scripts/check-infra.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

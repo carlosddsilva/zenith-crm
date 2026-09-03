@@ -1,74 +1,97 @@
-# Running with Docker
+# Zenith CRM com Docker
 
-The repo ships a multi-stage `Dockerfile` (Next.js standalone output,
-runs as a non-root user) and a `docker-compose.yml` with a single
-`app` service. Supabase is external — point the app at your hosted
-(or self-hosted) Supabase project via env vars; no database container
-is included.
+O Zenith CRM está em migração do Supabase para infraestrutura própria. O Compose já sobe a infraestrutura alvo (`PostgreSQL + pgvector` e `Redis`) ao lado do app, enquanto o runtime legado ainda depende temporariamente das variáveis Supabase.
+
+## Serviços
+
+```text
+app       Next.js 16
+postgres  PostgreSQL 16 + pgvector
+redis     Redis 7
+```
+
+PostgreSQL e Redis são publicados somente em `127.0.0.1` no host, evitando exposição direta pela interface pública da VPS.
 
 ## Quick start
 
-1. Copy the env template and fill it in:
+1. Copie o template:
 
    ```bash
    cp .env.local.example .env.local
    ```
 
-2. Build and start (the `--env-file` flag is required — Compose only
-   reads `.env` by default for `${VAR}` substitution, and this project
-   keeps its config in `.env.local`):
+2. Troque ao menos `POSTGRES_PASSWORD` e preencha as credenciais legadas do Supabase enquanto a migração não terminou.
+
+3. Suba o ambiente:
 
    ```bash
    docker compose --env-file .env.local up --build -d
    ```
 
-3. The app is served on [http://localhost:3000](http://localhost:3000)
-   (publish it elsewhere with `HOST_PORT=8080` in `.env.local`).
+4. Verifique:
 
-> Use `HOST_PORT`, not `PORT`, to move the published port. `PORT` is
-> what the server listens on _inside_ the container, and `env_file`
-> would inject it there — leaving the app on a port the mapping and
-> the healthcheck don't target. Compose pins it to 3000 for that
-> reason.
+   ```bash
+   docker compose --env-file .env.local ps
+   npm run infra:check
+   ```
 
-## Build-time vs runtime variables
+## Subir somente PostgreSQL e Redis
 
-- `NEXT_PUBLIC_*` variables are **inlined into the client bundle at
-  build time**. They are passed as Docker build args by
-  `docker-compose.yml`. If you change any of them, rebuild:
-  `docker compose --env-file .env.local up --build -d`.
-- Everything else (`SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY`,
-  `META_APP_SECRET`, …) is read at **runtime** from `.env.local` via
-  `env_file` and is never baked into the image — safe to change with
-  just a container restart.
-
-## Plain Docker (no Compose)
+Durante a migração é possível iniciar apenas a infraestrutura nova:
 
 ```bash
-docker build \
-  --build-arg NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co \
-  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key \
-  -t wacrm .
-
-docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 wacrm
+docker compose --env-file .env.local up -d postgres redis
 ```
 
-## Notes
+Isso permite trabalhar no novo schema sem depender do build do frontend.
 
-- Database migrations under `supabase/` are **not** run by the
-  container — apply them with the Supabase CLI as described in the
-  README.
-- Received attachments are copied into the `chat-media` Supabase
-  Storage bucket, because Meta deletes media roughly 30 days after it
-  arrives and the copy is the only thing that outlives that. It grows
-  with inbound volume, so it's worth watching your project's storage
-  quota. Turn it off per account under Settings → WhatsApp →
-  Attachment Storage; attachments received while it's off become
-  unviewable once Meta drops them. Files over 16 MB (the bucket's
-  limit) are never copied.
-- Nothing inside the container is scheduled. If you use automation
-  Wait steps or flows, point an external scheduler at
-  `GET /api/automations/cron` and `GET /api/flows/cron` on this
-  deployment, sending the shared secret in the `x-cron-secret` header
-  (`AUTOMATION_CRON_SECRET`, see `.env.local.example`). Both return
-  503 until that variable is set.
+## Endpoints no host
+
+Por padrão:
+
+```text
+PostgreSQL  127.0.0.1:5432
+Redis       127.0.0.1:6379
+App         0.0.0.0:3000
+```
+
+As portas podem ser alteradas em `.env.local` com `POSTGRES_PORT`, `REDIS_PORT` e `HOST_PORT`.
+
+## Conexão do app
+
+Para execução local via `npm run dev`:
+
+```env
+DATABASE_URL=postgresql://zenith:<senha>@127.0.0.1:5432/zenith_crm
+REDIS_URL=redis://127.0.0.1:6379
+```
+
+Dentro do container `app`, o Compose substitui automaticamente os hosts por:
+
+```text
+postgres:5432
+redis:6379
+```
+
+## Extensões PostgreSQL
+
+No primeiro bootstrap do volume são habilitadas:
+
+- `uuid-ossp`;
+- `pgcrypto`;
+- `vector`.
+
+O arquivo está em `infra/postgres/init/001_extensions.sql`.
+
+> Os scripts em `docker-entrypoint-initdb.d` são executados somente quando o volume do PostgreSQL é criado pela primeira vez.
+
+## Estado da migração
+
+A infraestrutura nova está pronta, mas o runtime atual ainda utiliza Supabase para:
+
+- Auth;
+- queries via SDK;
+- Realtime;
+- Storage.
+
+A retirada é incremental. Consulte `docs/MIGRATION_SUPABASE_TO_POSTGRES.md` e `docs/PROJECT_STATE.md`.

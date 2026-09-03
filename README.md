@@ -1,8 +1,8 @@
-# wacrm — CRM Template for WhatsApp
+# Zenith CRM
 
-> Self-hostable CRM template for WhatsApp® — shared inbox, contacts,
-> sales pipelines, broadcasts, and no-code automations. Fork it, brand
-> it, host it.
+> CRM self-hosted multi-tenant para atendimento WhatsApp, baseado no WaCRM e em evolução para PostgreSQL próprio, pt-BR, Meta Cloud API, Evolution API e WaCalls.
+
+Este repositório é um fork de [`ArnasDon/wacrm`](https://github.com/ArnasDon/wacrm), distribuído sob licença MIT. A migração estrutural está em andamento; consulte [`docs/PROJECT_STATE.md`](./docs/PROJECT_STATE.md).
 
 <p align="center">
   <a href="https://www.hostinger.com/web-apps-hosting?REFERRALCODE=WACRMHOST">
@@ -80,8 +80,8 @@ in an afternoon and make yours.
 
 ```bash
 # Fork on GitHub first: https://github.com/ArnasDon/wacrm → Fork
-git clone https://github.com/<your-username>/wacrm.git
-cd wacrm
+git clone https://github.com/carlosddsilva/zenith-crm.git
+cd zenith-crm
 npm install
 cp .env.local.example .env.local   # fill in Supabase + Meta creds
 npm run dev
