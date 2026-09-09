@@ -30,6 +30,8 @@ import {
   reserveOutboundVoiceCall,
   getVoiceProvider,
   transitionCallState,
+  sanitizeCallEndReason,
+  sanitizeCallFailureReason,
   VoiceProviderError,
 } from "@/lib/voice";
 
@@ -306,10 +308,10 @@ export async function GET(
             row.toPhone,
 
           failure_reason:
-            row.failureReason,
+            sanitizeCallFailureReason(row.failureReason),
 
           end_reason:
-            row.endReason,
+            sanitizeCallEndReason(row.endReason),
 
           started_at:
             row.startedAt,
@@ -514,11 +516,11 @@ export async function POST(
       error instanceof Error
         ? error.message
         : "Falha ao reservar canal de voz.";
+    console.error("[voice call route] Reservation error:", error);
 
     return NextResponse.json(
       {
-        error:
-          message,
+        error: "Falha ao iniciar chamada.",
       },
       {
         status:
@@ -641,6 +643,7 @@ export async function POST(
       error instanceof Error
         ? error.message
         : "Falha ao iniciar chamada.";
+    console.error("[voice call route] Dial error:", error);
 
     await transitionCallState({
       accountId:
@@ -666,8 +669,7 @@ export async function POST(
 
     return NextResponse.json(
       {
-        error:
-          message,
+        error: "Falha ao iniciar chamada.",
 
         item: {
           id:

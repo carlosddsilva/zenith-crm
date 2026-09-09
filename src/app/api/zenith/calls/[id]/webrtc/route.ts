@@ -93,12 +93,7 @@ function handleError(
 
   return NextResponse.json(
     {
-      error:
-        status === 500
-          ? "Erro na negociacao WebRTC."
-          : error instanceof Error
-            ? error.message
-            : "Erro na negociacao WebRTC.",
+      error: "Erro na negociação WebRTC.",
     },
     {
       status,

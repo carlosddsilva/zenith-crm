@@ -103,10 +103,7 @@ function handleError(
 
   return NextResponse.json(
     {
-      error:
-        status === 500
-          ? "Erro ao executar acao da chamada."
-          : message,
+      error: "Erro ao executar ação da chamada.",
     },
     {
       status,

@@ -1,4 +1,4 @@
-﻿import {
+import {
   and,
   eq,
 } from "drizzle-orm";
@@ -15,6 +15,32 @@ import {
 import type {
   VoiceCallState,
 } from "./types";
+
+export function sanitizeCallEndReason(reason: string | null): string | null {
+  if (!reason) return null;
+  const safe = [
+    "user_ended",
+    "declined",
+    "timeout",
+    "busy",
+    "cancelled",
+    "failed",
+    "do_not_disturb",
+    "unknown",
+  ];
+  return safe.includes(reason) ? reason : "provider_ended";
+}
+
+export function sanitizeCallFailureReason(reason: string | null): string | null {
+  if (!reason) return null;
+  const safe = [
+    "invalid_number",
+    "no_credit",
+    "provider_unavailable",
+    "rate_limit",
+  ];
+  return safe.includes(reason) ? reason : "provider_error";
+}
 
 const allowedTransitions:
   Record<
