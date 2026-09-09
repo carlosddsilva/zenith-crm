@@ -2,9 +2,10 @@ name: zenith-crm
 
 services:
   app:
+    image: zenith-crm-app:local
     build:
       context: .
-      # NEXT_PUBLIC_* vars are inlined at build time — forward them
+      # NEXT_PUBLIC_* vars are inlined at build time - forward them
       # from .env.local via `docker compose --env-file .env.local ...`.
       # Supabase values remain temporarily required while the migration
       # to standalone PostgreSQL/Auth/Realtime/Storage is in progress.
@@ -41,6 +42,28 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  wacalls:
+    image: zenith-wacalls:local
+    build:
+      context: ./infra/wacalls
+      dockerfile: Dockerfile.zenith
+    ports:
+      - '127.0.0.1:${WACALLS_PORT:-18080}:8080'
+    volumes:
+      - wacalls_data:/data
+    restart: unless-stopped
+  voice-events-worker:
+    image: zenith-crm-app:local
+    command: ['node', 'scripts/voice-events-worker.mjs']
+    env_file:
+      - .env.local
+    environment:
+      VOICE_WORKER_APP_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
 
   postgres:
     # pgvector image keeps the project compatible with the existing AI
@@ -80,3 +103,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  wacalls_data:

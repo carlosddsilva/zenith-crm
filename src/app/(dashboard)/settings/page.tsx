@@ -11,7 +11,11 @@ import { SettingsOverview } from '@/components/settings/settings-overview';
 import { ProfileForm } from '@/components/settings/profile-form';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
-import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
+import { MessagingChannelsSettings } from "@/components/settings/messaging-channels-settings";
+import { VoiceChannelsSettings } from "@/components/settings/voice-channels-settings";
+import {
+  VoiceNotificationSettings,
+} from "@/components/settings/voice-notification-settings";
 import { TemplateManager } from '@/components/settings/template-manager';
 import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
@@ -26,7 +30,7 @@ import {
 // `useSearchParams` opts this page out of static prerendering unless it
 // sits under a Suspense boundary. Without one, the production build hits
 // the "missing Suspense with CSR bailout" error and the whole page bails
-// to client-side rendering — shipping a settings screen whose rail never
+// to client-side rendering â€” shipping a settings screen whose rail never
 // wires up its click handlers. You land on the section the URL carried
 // (the account-menu Settings link points at `?tab=whatsapp`) and can't
 // navigate away. Mirror the login/signup split: a thin wrapper supplies
@@ -47,9 +51,9 @@ function SettingsPageInner() {
   const t = useTranslations('Settings');
 
   // The URL (`?tab=`) is the single source of truth for the active
-  // section — deep-linkable, and it keeps the existing links in the
+  // section â€” deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
-  // resolve onto their new home; unknown/empty → the Overview landing.
+  // resolve onto their new home; unknown/empty â†’ the Overview landing.
   const section = resolveSection(searchParams.get('tab'));
 
   const go = (next: SettingsSection) => {
@@ -74,7 +78,13 @@ function SettingsPageInner() {
     profile: <ProfileForm />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
-    whatsapp: <WhatsAppConfig />,
+    whatsapp: <MessagingChannelsSettings />,
+    voice: (
+      <div className="space-y-6">
+        <VoiceNotificationSettings />
+        <VoiceChannelsSettings />
+      </div>
+    ),
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,
     fields: <FieldsAndTagsPanel />,
@@ -101,3 +111,6 @@ function SettingsPageInner() {
     </div>
   );
 }
+
+
+

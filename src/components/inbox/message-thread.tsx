@@ -27,6 +27,8 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+
+  PhoneCall,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -921,7 +923,39 @@ export function MessageThread({
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+                        <div className="flex items-center gap-2">
+              <p className="truncate text-xs text-muted-foreground">
+                {contact.phone}
+              </p>
+
+              {contact.phone && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.dispatchEvent(
+                      new CustomEvent(
+                        "zenith:voice-dialer:open",
+                        {
+                          detail: {
+                            phone:
+                              contact.phone,
+
+                            contactId:
+                              contact.id,
+                          },
+                        },
+                      ),
+                    );
+                  }}
+                  aria-label={`Ligar para ${displayName}`}
+                  title={`Ligar para ${contact.phone}`}
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+                >
+                  <PhoneCall className="h-3 w-3" />
+                  Ligar
+                </button>
+              )}
+            </div>
           </div>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}
@@ -938,7 +972,7 @@ export function MessageThread({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Contact-panel toggle — desktop only. The contact sidebar
+{/* Contact-panel toggle — desktop only. The contact sidebar
               eats a chunk of horizontal width that crowds the thread on
               smaller laptops; this lets agents reclaim it when they just
               want to read and reply. Hidden on mobile, where the sidebar

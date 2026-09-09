@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   createContext,
@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { User } from "@supabase/supabase-js";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { DEFAULT_CURRENCY } from "@/lib/currency";
 import {
   canEditSettings as canEditSettingsFor,
@@ -21,6 +21,39 @@ import {
   type AccountRole,
 } from "@/lib/auth/roles";
 
+
+interface ZenithUser {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
+type AuthUser = SupabaseUser | ZenithUser;
+type AuthSource = "zenith" | "supabase" | null;
+
+interface ZenithContextResponse {
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  };
+  profile: {
+    id: string;
+    full_name: string | null;
+    email: string;
+    avatar_url: string | null;
+    role: string | null;
+    beta_features: string[];
+    account_id: string;
+    account_role: string;
+  };
+  account: {
+    id: string;
+    name: string;
+    default_currency: string;
+  };
+}
+
 interface Profile {
   id: string;
   full_name: string | null;
@@ -29,8 +62,8 @@ interface Profile {
   role: string | null;
   /**
    * Opted-in beta feature keys for this account. No current feature
-   * reads this — Flows was the last user and went to soft-GA in PR
-   * #134 — but the column survives for future beta gates.
+   * reads this â€” Flows was the last user and went to soft-GA in PR
+   * #134 â€” but the column survives for future beta gates.
    */
   beta_features: string[];
   account_id: string | null;
@@ -49,9 +82,9 @@ interface AccountSummary {
  * Whether we managed to establish what this user may do.
  *
  * `unlinked` and `error` are the states worth surfacing: every RLS
- * policy checks `is_account_member(account_id, …)` and every `useCan`
+ * policy checks `is_account_member(account_id, â€¦)` and every `useCan`
  * gate returns false without a role, so in both the app silently
- * becomes read-only — the whole UI renders, and nothing saves. That is
+ * becomes read-only â€” the whole UI renders, and nothing saves. That is
  * indistinguishable from a bug unless we say so (issue #471).
  */
 export type AccountStatus =
@@ -65,7 +98,8 @@ export type AccountStatus =
   | "error";
 
 interface AuthContextValue {
-  user: User | null;
+  user: AuthUser | null;
+  authSource: AuthSource;
   profile: Profile | null;
   /**
    * Session-level loading. Flips to false as soon as we know whether
@@ -77,13 +111,13 @@ interface AuthContextValue {
   /**
    * Profile-row loading. Stays true until `fetchProfile` settles
    * (success, missing row, or error). Code that branches on
-   * `profile.beta_features` MUST gate on this — otherwise it sees the
+   * `profile.beta_features` MUST gate on this â€” otherwise it sees the
    * `{ loading: false, profile: null }` window during initial load
    * and may take the "not opted in" branch incorrectly.
    */
   profileLoading: boolean;
   signOut: () => Promise<void>;
-  /** Re-fetch the current user's profile row — call after a save from
+  /** Re-fetch the current user's profile row â€” call after a save from
    *  the settings form so header/sidebar reflect the change without a
    *  full page reload. */
   refreshProfile: () => Promise<void>;
@@ -99,7 +133,7 @@ interface AuthContextValue {
 
   /**
    * Outcome of resolving this user's account + role. Anything other
-   * than `ready` means writes will be rejected — render
+   * than `ready` means writes will be rejected â€” render
    * `<AccountAccessAlert />` (already mounted in the dashboard shell)
    * rather than letting the user discover it one failed save at a time.
    */
@@ -110,7 +144,7 @@ interface AuthContextValue {
   accountId: string | null;
   /** Role within that account. Null while loading. */
   accountRole: AccountRole | null;
-  /** Lightweight account meta — id + name + default_currency. Null while loading. */
+  /** Lightweight account meta â€” id + name + default_currency. Null while loading. */
   account: AccountSummary | null;
   /** Account default deal currency. Falls back to DEFAULT_CURRENCY
    *  while loading or when no account is resolved, so callers can use
@@ -118,7 +152,7 @@ interface AuthContextValue {
   defaultCurrency: string;
   /** True if `accountRole === 'owner'`. */
   isOwner: boolean;
-  /** True if `accountRole === 'admin'` (does NOT include owner — use canManageMembers for "admin or above"). */
+  /** True if `accountRole === 'admin'` (does NOT include owner â€” use canManageMembers for "admin or above"). */
   isAdmin: boolean;
   /** True if `accountRole === 'agent'`. */
   isAgent: boolean;
@@ -155,12 +189,14 @@ interface ProfileRow {
 }
 
 /**
- * AuthProvider — wrap this around the dashboard layout.
+ * AuthProvider â€” wrap this around the dashboard layout.
  * Makes ONE getSession() call for the whole tree instead of one per
  * component, avoiding internal lock contention in the Supabase client.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authSource, setAuthSource] = useState<AuthSource>(null);
+  const authSourceRef = useRef<AuthSource>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -170,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Tracked separately from `loading`. The session settles fast (one
   // local cookie read); the profile fetch crosses the network and
   // settles later. Callers that gate on `profile.*` need to know which
-  // window they're in — see the type doc above.
+  // window they're in â€” see the type doc above.
   const [profileLoading, setProfileLoading] = useState(true);
 
   // Tracks the user ID we've successfully initiated/completed fetching
@@ -181,6 +217,106 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Shared across init, auth-state-change listener, and the exposed
   // refreshProfile() callback. Reads the current session's user id and
   // pulls the matching profile row along with its account summary.
+  const loadZenithContext = useCallback(async (): Promise<boolean> => {
+    const maxAttempts = 5;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await fetch("/api/auth/zenith/context", {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        console.log(
+          "[ZenithAuth] context attempt",
+          attempt,
+          "status",
+          response.status,
+        );
+
+        if (!response.ok) {
+          if (attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            continue;
+          }
+
+          return false;
+        }
+
+        const data = (await response.json()) as ZenithContextResponse;
+
+        const accountRole = isAccountRole(
+          data.profile.account_role,
+        )
+          ? data.profile.account_role
+          : null;
+
+        if (!accountRole) {
+          console.error(
+            "[ZenithAuth] invalid account role:",
+            data.profile.account_role,
+          );
+
+          return false;
+        }
+
+        authSourceRef.current = "zenith";
+        setAuthSource("zenith");
+
+        setUser({
+          id: data.user.id,
+          email: data.user.email,
+          created_at: "",
+        });
+
+        setProfile({
+          id: data.profile.id,
+          full_name: data.profile.full_name,
+          email: data.profile.email,
+          avatar_url: data.profile.avatar_url,
+          role: data.profile.role,
+          beta_features: data.profile.beta_features ?? [],
+          account_id: data.profile.account_id,
+          account_role: accountRole,
+        });
+
+        setAccount({
+          id: data.account.id,
+          name: data.account.name,
+          default_currency:
+            data.account.default_currency ?? DEFAULT_CURRENCY,
+        });
+
+        setProfileLoading(false);
+        setStatusDetail(null);
+        lastFetchedUserIdRef.current = data.user.id;
+
+        console.log(
+          "[ZenithAuth] authenticated:",
+          data.user.email,
+          accountRole,
+        );
+
+        return true;
+      } catch (error) {
+        console.error(
+          "[ZenithAuth] context attempt failed:",
+          attempt,
+          error,
+        );
+
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          continue;
+        }
+
+        return false;
+      }
+    }
+
+    return false;
+  }, []);
+
   const fetchProfile = useCallback(async (userId: string) => {
     const supabase = createClient();
     setProfileLoading(true);
@@ -225,10 +361,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data) {
         // Load the account with a plain lookup by id instead of an
         // embedded FK join. The embed (`account:accounts!inner(...)`)
-        // forces PostgREST to resolve the profiles.account_id →
+        // forces PostgREST to resolve the profiles.account_id â†’
         // accounts.id relationship from its schema cache; a stale cache
         // (common right after a migration adds the FK) makes it fail
-        // hard with PGRST200 and blanks the whole profile — the user
+        // hard with PGRST200 and blanks the whole profile â€” the user
         // then loses account context everywhere (issue #294). A point
         // lookup by id needs no relationship inference, so the profile
         // (with account_id / account_role) still resolves even if the
@@ -261,7 +397,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Narrow the DB enum into our AccountRole union. The DB
         // constraint should make this unconditional, but a future
         // migration that broadens the enum without updating TS would
-        // otherwise crash here — fall back to null and let UI gates
+        // otherwise crash here â€” fall back to null and let UI gates
         // treat the caller as least-privileged.
         const accountRole = isAccountRole(data.account_role)
           ? data.account_role
@@ -275,7 +411,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: data.role,
           // `beta_features` is `NOT NULL DEFAULT ARRAY[]` in the DB, but
           // narrow defensively in case the column hasn't been migrated yet
-          // (older deployments running 011 lazily) — `null` reads as no
+          // (older deployments running 011 lazily) â€” `null` reads as no
           // opt-ins, which is the safe default for any future beta gate.
           beta_features: data.beta_features ?? [],
           account_id: data.account_id ?? null,
@@ -306,93 +442,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const supabase = createClient();
     let mounted = true;
-
-    const safetyTimer = setTimeout(() => {
-      if (mounted) {
-        console.warn("[AuthProvider] getSession() timed out after 3s");
-        setLoading(false);
-        setProfileLoading(false);
-      }
-    }, 3000);
 
     const init = async () => {
       try {
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
-
-        if (error) console.error("[AuthProvider] getSession error:", error.message);
+        const authenticated = await loadZenithContext();
 
         if (!mounted) return;
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
 
-        if (currentUser) {
-          // Don't block session loading on profile fetch — chrome
-          // (header, sidebar) can render from the user object alone,
-          // profile enriches async. Callers that need to branch on
-          // profile data gate on `profileLoading` instead.
-          fetchProfile(currentUser.id);
-        } else {
-          // No user → no profile to load. Flip profileLoading off so
-          // pages that gate on it don't wait forever on the logged-out
-          // path (the route guard or redirect should fire instead).
+        if (!authenticated) {
+          authSourceRef.current = null;
+          setAuthSource(null);
+          setUser(null);
+          setProfile(null);
+          setAccount(null);
           setProfileLoading(false);
         }
-      } catch (err) {
-        console.error("[AuthProvider] init threw:", err);
+      } catch (error) {
+        console.error(
+          "[AuthProvider] Zenith init error:",
+          error,
+        );
+
+        if (mounted) {
+          authSourceRef.current = null;
+          setAuthSource(null);
+          setUser(null);
+          setProfile(null);
+          setAccount(null);
+          setProfileLoading(false);
+        }
       } finally {
-        if (mounted) setLoading(false);
-        clearTimeout(safetyTimer);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     init();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-
-      if (currentUser) {
-        if (currentUser.id !== lastFetchedUserIdRef.current) {
-          fetchProfile(currentUser.id);
-        }
-      } else {
-        lastFetchedUserIdRef.current = null;
-        setProfile(null);
-        setAccount(null);
-        setProfileLoading(false);
-      }
-
-      setLoading(false);
-    });
-
     return () => {
       mounted = false;
-      clearTimeout(safetyTimer);
-      subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, [loadZenithContext]);
 
   const signOut = useCallback(async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    await fetch("/api/auth/zenith/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+
+    authSourceRef.current = null;
+    setAuthSource(null);
     setUser(null);
     setProfile(null);
     setAccount(null);
-    window.location.href = "/login";
+
+    window.location.href = "/zenith-login";
   }, []);
 
   const refreshProfile = useCallback(async () => {
     if (!user?.id) return;
+
+    if (authSourceRef.current === "zenith") {
+      await loadZenithContext();
+      return;
+    }
+
     await fetchProfile(user.id);
-  }, [user?.id, fetchProfile]);
+  }, [user?.id, fetchProfile, loadZenithContext]);
 
   // Derive the role booleans once per profile change rather than on
   // every consumer render. Cheap regardless, but the memo also gives
@@ -413,7 +531,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [profile?.account_role, profile?.account_id]);
 
-  // Signed out is not a broken account — the shell redirects to /login
+  // Signed out is not a broken account â€” the shell redirects to /login
   // before anything reads this.
   const accountStatus: AccountStatus = !user
     ? "loading"
@@ -429,6 +547,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        authSource,
         profile,
         loading,
         profileLoading,
@@ -447,7 +566,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * useAuth — read the shared auth state from context.
+ * useAuth â€” read the shared auth state from context.
  * Must be used inside an <AuthProvider>.
  */
 export function useAuth(): AuthContextValue {
@@ -455,10 +574,11 @@ export function useAuth(): AuthContextValue {
   if (!ctx) {
     // Fallback for components rendered outside the provider (shouldn't
     // happen in normal flow, but don't crash the page). Account state
-    // collapses to least-privileged null — every `canX` boolean is
+    // collapses to least-privileged null â€” every `canX` boolean is
     // false so UI gates fail closed.
     return {
       user: null,
+      authSource: null,
       profile: null,
       loading: false,
       profileLoading: false,
@@ -468,7 +588,7 @@ export function useAuth(): AuthContextValue {
       refreshProfile: async () => {},
       account: null,
       defaultCurrency: DEFAULT_CURRENCY,
-      // Outside the provider there is nothing to resolve yet — 'loading'
+      // Outside the provider there is nothing to resolve yet â€” 'loading'
       // keeps the access alert from firing on, say, the login page.
       accountStatus: "loading",
       accountStatusDetail: null,
@@ -485,3 +605,6 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
+
+
+

@@ -15,6 +15,97 @@
       "when": 1788467606677,
       "tag": "0001_zenith_auth_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788469285212,
+      "tag": "0002_zenith_account_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788469553521,
+      "tag": "0003_zenith_contacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788479700410,
+      "tag": "0004_zenith_custom_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788481686068,
+      "tag": "0005_zenith_inbox_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788483908038,
+      "tag": "0006_zenith_messaging_channels",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788485613158,
+      "tag": "0007_zenith_message_transport",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788486812967,
+      "tag": "0008_zenith_inbound_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788490216367,
+      "tag": "0009_zenith_voice_channels",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788490471398,
+      "tag": "0010_zenith_voice_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788490693717,
+      "tag": "0011_zenith_voice_default_channel",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788498844351,
+      "tag": "0012_zenith_voice_channel_pool",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788500811365,
+      "tag": "0013_zenith_voice_asterisk_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788501784861,
+      "tag": "0014_zenith_ivr_core",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "voice_channels_account_default_uidx" ON "voice_channels" USING btree ("account_id") WHERE "voice_channels"."is_default" = true;

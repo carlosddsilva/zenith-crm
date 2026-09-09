@@ -4,6 +4,7 @@ import {
   KeyRound,
   LayoutGrid,
   Palette,
+  PhoneCall,
   PlugZap,
   Shield,
   Tags,
@@ -18,7 +19,7 @@ import {
  *
  * The flat tab strip became a grouped left rail with a new Overview
  * landing. The URL query param stays `?tab=` (deep-linkable, and it
- * keeps the existing links in sidebar.tsx / header.tsx working) — we
+ * keeps the existing links in sidebar.tsx / header.tsx working) â€” we
  * just map the old values onto the new sections.
  */
 export const SETTINGS_SECTIONS = [
@@ -27,6 +28,7 @@ export const SETTINGS_SECTIONS = [
   'security',
   'appearance',
   'whatsapp',
+  'voice',
   'templates',
   'quick-replies',
   'fields',
@@ -52,7 +54,8 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   profile: { id: 'profile', label: 'Your profile', icon: User, group: 'account' },
   security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
-  whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
+  whatsapp: { id: 'whatsapp', label: 'Canais WhatsApp', icon: PlugZap, group: 'workspace' },
+  voice: { id: 'voice', label: 'Zenith Calls', icon: PhoneCall, group: 'workspace' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
   'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace' },
@@ -73,7 +76,7 @@ function isSection(value: string | null): value is SettingsSection {
 
 /**
  * Resolve a raw `?tab=` value to a section. Legacy tabs from the old
- * flat layout collapse onto their new home (Tags + Custom fields → the
+ * flat layout collapse onto their new home (Tags + Custom fields â†’ the
  * merged "Fields & tags" section). Anything unknown falls back to the
  * Overview landing.
  */
@@ -82,3 +85,5 @@ export function resolveSection(raw: string | null): SettingsSection {
   if (isSection(raw)) return raw;
   return DEFAULT_SECTION;
 }
+
+

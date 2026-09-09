@@ -40,7 +40,7 @@ type RangeDays = 7 | 30 | 90
 
 export default function DashboardPage() {
   const t = useTranslations('Dashboard.page')
-  const { defaultCurrency } = useAuth()
+  const { defaultCurrency, authSource, loading: authLoading } = useAuth()
   const [metrics, setMetrics] = useState<MetricsBundle | null>(null)
   const [metricsLoading, setMetricsLoading] = useState(true)
 
@@ -100,8 +100,40 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    loadAll()
-  }, [loadAll])
+    if (authLoading) return
+
+    if (authSource === 'zenith') {
+      // The Zenith session is already independent from Supabase, but the
+      // dashboard data sources have not been migrated yet. Do not issue
+      // Supabase queries with a Zenith-only session; render deterministic
+      // empty states until the dashboard tables/API are migrated.
+      setMetrics({
+        activeConversations: { current: 0, previous: 0 },
+        newContactsToday: { current: 0, previous: 0 },
+        openDealsValue: 0,
+        openDealsCount: 0,
+        messagesSentToday: { current: 0, previous: 0 },
+      })
+      setMetricsLoading(false)
+      setSeries({ 7: [], 30: [], 90: [] })
+      setSeriesLoading(false)
+      setPipeline({ stages: [], totalValue: 0 })
+      setPipelineLoading(false)
+      setResponseTime({
+        buckets: [],
+        thisWeekAvg: null,
+        lastWeekAvg: null,
+      })
+      setResponseTimeLoading(false)
+      setActivity([])
+      setActivityLoading(false)
+      return
+    }
+
+    if (authSource === 'supabase') {
+      loadAll()
+    }
+  }, [authLoading, authSource, loadAll])
 
   // Range switch handler — kept in an event callback (not an effect)
   // so the setState calls stay out of the react-hooks/set-state-in-effect
@@ -111,6 +143,13 @@ export default function DashboardPage() {
     (r: RangeDays) => {
       setRange(r)
       if (series[r] !== null) return
+
+      if (authSource === 'zenith') {
+        setSeries((prev) => ({ ...prev, [r]: [] }))
+        setSeriesLoading(false)
+        return
+      }
+
       setSeriesLoading(true)
       const db = createClient()
       loadConversationsSeries(db, r)
@@ -118,7 +157,7 @@ export default function DashboardPage() {
         .catch((err) => console.error('[dashboard] series failed:', err))
         .finally(() => setSeriesLoading(false))
     },
-    [series],
+    [authSource, series],
   )
 
   return (

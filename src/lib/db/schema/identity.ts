@@ -1,5 +1,4 @@
 ﻿import {
-  index,
   pgEnum,
   pgTable,
   text,
@@ -35,12 +34,15 @@ export const users = pgTable(
     name: text("name"),
     passwordHash: text("password_hash"),
     status: userStatusEnum("status").notNull().default("active"),
+
     emailVerifiedAt: timestamp("email_verified_at", {
       withTimezone: true,
     }),
+
     createdAt: timestamp("created_at", {
       withTimezone: true,
     }).notNull().defaultNow(),
+
     updatedAt: timestamp("updated_at", {
       withTimezone: true,
     }).notNull().defaultNow(),
@@ -54,6 +56,7 @@ export const accounts = pgTable(
   "accounts",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+
     name: text("name").notNull(),
 
     ownerUserId: uuid("owner_user_id")
@@ -61,6 +64,10 @@ export const accounts = pgTable(
       .references(() => users.id, {
         onDelete: "restrict",
       }),
+
+    defaultCurrency: text("default_currency")
+      .notNull()
+      .default("BRL"),
 
     status: accountStatusEnum("status")
       .notNull()
@@ -75,7 +82,7 @@ export const accounts = pgTable(
     }).notNull().defaultNow(),
   },
   (table) => [
-    index("accounts_owner_user_id_idx").on(
+    uniqueIndex("accounts_owner_user_id_unique").on(
       table.ownerUserId,
     ),
   ],
@@ -115,13 +122,9 @@ export const accountMembers = pgTable(
       "account_members_account_user_unique",
     ).on(table.accountId, table.userId),
 
-    index("account_members_user_id_idx").on(
-      table.userId,
-    ),
-
-    index("account_members_account_id_idx").on(
-      table.accountId,
-    ),
+    uniqueIndex(
+      "account_members_user_id_unique",
+    ).on(table.userId),
   ],
 );
 
