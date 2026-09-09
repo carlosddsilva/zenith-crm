@@ -25,6 +25,7 @@ import {
   Workflow,
   X,
   Zap,
+  PhoneCall,
 } from "lucide-react";
 import type { AccountRole } from "@/lib/auth/roles";
 
@@ -99,6 +100,7 @@ const navItems: NavItem[] = [
   { href: "/automations", labelKey: "automations", icon: Zap },
   { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },
   { href: "/agents", labelKey: "aiAgents", icon: Bot },
+  { href: "/zenith-calls", labelKey: "zenithCalls", icon: PhoneCall },
 ];
 
 const bottomNavItems = [
