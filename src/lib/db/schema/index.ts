@@ -8,3 +8,4 @@ export * from "./messaging-webhooks";
 export * from "./voice";
 export * from "./voice-calls";
 export * from "./ivr";
+export * from "./pipeline";

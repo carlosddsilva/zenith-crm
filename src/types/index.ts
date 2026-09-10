@@ -353,6 +353,7 @@ export interface Pipeline {
   user_id: string;
   name: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface PipelineStage {
@@ -362,6 +363,7 @@ export interface PipelineStage {
   position: number;
   color: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export type DealStatus = 'open' | 'won' | 'lost';
