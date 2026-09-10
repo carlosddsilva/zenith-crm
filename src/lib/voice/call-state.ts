@@ -1,6 +1,8 @@
 import {
   and,
   eq,
+  isNull,
+  notInArray,
 } from "drizzle-orm";
 
 import {
@@ -356,6 +358,158 @@ export async function transitionCallState(
           payload:
             input.payload ??
             null,
+
+          occurredAt,
+        })
+        .onConflictDoNothing();
+
+      return updated;
+    },
+  );
+}
+
+export async function handoffInboundCallToAgents(
+  input: {
+    accountId:
+      string;
+
+    callId:
+      string;
+
+    occurredAt?:
+      Date;
+  },
+) {
+  return db.transaction(
+    async (tx) => {
+      const [current] =
+        await tx
+          .select()
+          .from(calls)
+          .where(
+            and(
+              eq(
+                calls.id,
+                input.callId,
+              ),
+
+              eq(
+                calls.accountId,
+                input.accountId,
+              ),
+
+              eq(
+                calls.direction,
+                "inbound",
+              ),
+            ),
+          )
+          .limit(1);
+
+      if (!current) {
+        throw new Error(
+          "Call not found",
+        );
+      }
+
+      /*
+       * Se ja pertence a algum agente, o IVR
+       * deve ser ignorado para evitar roubo
+       * indevido de sessao no banco.
+       */
+      if (
+        current.assignedAgentId !==
+          null
+      ) {
+        return current;
+      }
+
+      /*
+       * Nao revive chamadas ja encerradas.
+       */
+      if (
+        current.state ===
+          "ended" ||
+        current.state ===
+          "failed" ||
+        current.state ===
+          "rejected"
+      ) {
+        return current;
+      }
+
+      const occurredAt =
+        input.occurredAt ??
+        new Date();
+
+      const [updated] =
+        await tx
+          .update(calls)
+          .set({
+            state:
+              "ringing",
+
+            assignedAgentId:
+              null,
+
+            ringingAt:
+              current.ringingAt ??
+              occurredAt,
+
+            updatedAt:
+              new Date(),
+          })
+          .where(
+            and(
+              eq(
+                calls.id,
+                input.callId,
+              ),
+
+              eq(
+                calls.accountId,
+                input.accountId,
+              ),
+
+              eq(
+                calls.direction,
+                "inbound",
+              ),
+
+              // Compare-and-set restrictions
+              isNull(
+                calls.assignedAgentId,
+              ),
+
+              notInArray(
+                calls.state,
+                [
+                  "ended",
+                  "failed",
+                  "rejected",
+                ],
+              ),
+            ),
+          )
+          .returning();
+
+      if (!updated) {
+        return current;
+      }
+
+      await tx
+        .insert(
+          callEvents,
+        )
+        .values({
+          callId:
+            current.id,
+
+          eventType:
+            "call_handoff",
+
+          state:
+            "ringing",
 
           occurredAt,
         })

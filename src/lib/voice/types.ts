@@ -275,6 +275,15 @@ export interface VoiceProvider {
       VoiceProviderConfig,
   ):
     Promise<void>;
+
+  releaseCall?(
+    request:
+      VoiceCallActionRequest,
+
+    config:
+      VoiceProviderConfig,
+  ):
+    Promise<void>;
 }
 
 export class VoiceProviderError

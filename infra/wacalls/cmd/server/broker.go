@@ -145,6 +145,27 @@ func (b *Broker) setOwner(id, owner string) bool {
 	return true
 }
 
+func (b *Broker) releaseOwner(id, owner string) (bool, string) {
+	b.mu.Lock()
+	c, ok := b.calls[id]
+	if !ok {
+		b.mu.Unlock()
+		return false, "no such call"
+	}
+	if c.Owner == nil {
+		b.mu.Unlock()
+		return true, ""
+	}
+	if *c.Owner != owner {
+		b.mu.Unlock()
+		return false, "claimed by another client"
+	}
+	c.Owner = nil
+	b.mu.Unlock()
+	b.broadcastCallList()
+	return true, ""
+}
+
 func (b *Broker) ownerActiveCall(owner string) string {
 	if owner == "" {
 		return ""

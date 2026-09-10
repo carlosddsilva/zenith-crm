@@ -1,4 +1,4 @@
-﻿import {
+import {
   and,
   desc,
   eq,
@@ -1299,16 +1299,23 @@ export async function runIvrExecution(
         );
 
       const next =
-        nextNodeId(
-          definition,
-          node,
-          result.output,
-        );
+        node.type ===
+          "call.hangup" ||
+        node.type ===
+          "queue.route"
+          ? null
+          : nextNodeId(
+              definition,
+              node,
+              result.output,
+            );
 
       if (!next) {
         if (
           node.type ===
-          "call.hangup"
+            "call.hangup" ||
+          node.type ===
+            "queue.route"
         ) {
           await db
             .update(

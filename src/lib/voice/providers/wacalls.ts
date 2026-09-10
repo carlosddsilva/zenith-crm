@@ -1,4 +1,4 @@
-﻿import {
+import {
   voiceCapabilities,
 } from "../capabilities";
 
@@ -481,6 +481,29 @@ export const waCallsVoiceProvider:
       {
         method:
           "DELETE",
+      },
+
+      request.clientId,
+    );
+  },
+
+  async releaseCall(
+    request,
+    providerConfig,
+  ) {
+    const config =
+      requireConfig(
+        providerConfig,
+      );
+
+    await requestWaCalls(
+      `${sessionUrl(config)}/calls/${encodeURIComponent(
+        request.providerCallId,
+      )}/release`,
+
+      {
+        method:
+          "POST",
       },
 
       request.clientId,

@@ -1,4 +1,4 @@
-﻿import {
+import {
   waCallsVoiceProvider,
 } from "@/lib/voice/providers/wacalls";
 
@@ -11,6 +11,22 @@ import type {
   IvrRuntimeContext,
   IvrRuntimeResult,
 } from "../runtime";
+
+import {
+  handoffInboundCallToAgents,
+} from "@/lib/voice/call-state";
+
+import {
+  db,
+} from "@/lib/db/client";
+
+import {
+  calls,
+} from "@/lib/db/schema";
+
+import {
+  eq,
+} from "drizzle-orm";
 
 import type {
   IvrFlowNode,
@@ -165,6 +181,67 @@ async function executeHangup(
   };
 }
 
+async function executeQueueRoute(
+  context:
+    IvrRuntimeContext,
+): Promise<
+  IvrRuntimeResult
+> {
+  if (
+    waCallsVoiceProvider
+      .releaseCall
+  ) {
+    await waCallsVoiceProvider
+      .releaseCall(
+        {
+          providerCallId:
+            context.providerCallId,
+
+          clientId:
+            context.clientId,
+        },
+
+        context.providerConfig,
+      );
+  }
+
+  const [call] =
+    await db
+      .select({
+        accountId:
+          calls.accountId,
+      })
+      .from(calls)
+      .where(
+        eq(
+          calls.id,
+          context.callId,
+        ),
+      )
+      .limit(1);
+
+  if (!call) {
+    throw new IvrRuntimeError(
+      "ivr_call_not_found",
+      "Chamada nao encontrada no handoff.",
+      500,
+    );
+  }
+
+  await handoffInboundCallToAgents({
+    accountId:
+      call.accountId,
+
+    callId:
+      context.callId,
+  });
+
+  return {
+    status:
+      "completed",
+  };
+}
+
 export const waCallsIvrRuntime:
   IvrRuntime = {
   provider:
@@ -192,6 +269,11 @@ export const waCallsIvrRuntime:
         return executeAudio(
           context,
           node,
+        );
+
+      case "queue.route":
+        return executeQueueRoute(
+          context,
         );
 
       case "call.hangup":

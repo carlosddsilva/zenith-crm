@@ -309,7 +309,7 @@ export async function findOrCreateInboundCall(
           "inbound",
 
         state:
-          "ringing",
+          "new",
 
         contactId,
 

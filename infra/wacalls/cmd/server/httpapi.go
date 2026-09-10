@@ -24,6 +24,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/webrtc", s.handleWebRTC)
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/accept", s.handleAccept)
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/reject", s.handleReject)
+	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/release", s.handleRelease)
 	mux.HandleFunc("DELETE /api/sessions/{sid}/calls/{id}", s.handleEndCall)
 	mux.HandleFunc("GET /api/sessions/{sid}/history", s.handleHistory)
 
@@ -142,6 +143,12 @@ func (s *server) handleAccept(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleReject(w http.ResponseWriter, r *http.Request) {
 	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
 		s.doReject(sess, w, r)
+	}
+}
+
+func (s *server) handleRelease(w http.ResponseWriter, r *http.Request) {
+	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
+		s.doRelease(sess, w, r)
 	}
 }
 
@@ -268,6 +275,29 @@ func (s *server) doAccept(sess *Session, w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"call": map[string]string{"callId": id}})
+}
+
+func (s *server) doRelease(sess *Session, w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	_, ok := sess.reg.get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such call"})
+		return
+	}
+	owner := clientID(r)
+	released, errStr := s.broker.releaseOwner(id, owner)
+	if !released {
+		if errStr == "claimed by another client" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": errStr})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errStr})
+		return
+	}
+	if oldBridge, _ := sess.reg.setBridge(id, nil); oldBridge != nil {
+		go oldBridge.Close()
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *server) doReject(sess *Session, w http.ResponseWriter, r *http.Request) {

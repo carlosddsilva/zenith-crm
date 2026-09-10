@@ -38,6 +38,7 @@ import {
   appendCallEvent,
   canTransitionCallState,
   transitionCallState,
+  handoffInboundCallToAgents,
 } from "@/lib/voice/call-state";
 
 import {
@@ -977,6 +978,12 @@ export async function POST(
 
       providerConfig:
         resolvedChannel.config,
+    });
+  } else if (inboundCall && !ivrBinding) {
+    await handoffInboundCallToAgents({
+      accountId: channel.accountId,
+      callId: inboundCall.call.id,
+      occurredAt: new Date(),
     });
   }
 
