@@ -18,11 +18,18 @@ import {
   Search,
   UserRound,
   XCircle,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +49,13 @@ interface ZenithTag {
   id: string;
   name: string;
   color: string;
+}
+
+interface ZenithAgent {
+  user_id: string;
+  full_name: string;
+  email: string | null;
+  avatar_url: string | null;
 }
 
 interface ZenithConversationContact {
@@ -245,6 +259,12 @@ export function ZenithInboxPage() {
   const [loadingMessages, setLoadingMessages] =
     useState(false);
 
+  const [composerText, setComposerText] =
+    useState("");
+
+  const [sendingMessage, setSendingMessage] =
+    useState(false);
+
   const [statusFilter, setStatusFilter] =
     useState<
       "all" | ConversationStatus
@@ -267,6 +287,8 @@ export function ZenithInboxPage() {
 
   const [creatingConversation, setCreatingConversation] =
     useState(false);
+
+  const [agents, setAgents] = useState<ZenithAgent[]>([]);
 
   const activeIdRef =
     useRef<string | null>(
@@ -594,6 +616,104 @@ export function ZenithInboxPage() {
       [conversations],
     );
 
+  const sendMessage = useCallback(async () => {
+    if (!activeId || !composerText.trim() || sendingMessage) {
+      return;
+    }
+
+    setSendingMessage(true);
+
+    try {
+      const response = await fetch(
+        `/api/zenith/conversations/${activeId}/messages`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            content_type: "text",
+            content_text: composerText.trim(),
+          }),
+        }
+      );
+
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          body?.error ?? "Falha ao enviar mensagem."
+        );
+      }
+
+      setComposerText("");
+    } catch (error) {
+      console.error("[ZenithInboxPage] sendMessage error:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Falha ao enviar mensagem."
+      );
+    } finally {
+      setSendingMessage(false);
+    }
+  }, [activeId, composerText, sendingMessage]);
+
+  const updateConversationStatus = useCallback(async (newStatus: ConversationStatus) => {
+    if (!activeId) return;
+
+    try {
+      const response = await fetch(`/api/zenith/conversations/${activeId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Falha ao atualizar status");
+      }
+
+      setConversations((current) =>
+        current.map((c) =>
+          c.id === activeId ? { ...c, status: newStatus } : c
+        )
+      );
+      toast.success("Status atualizado");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao atualizar status");
+    }
+  }, [activeId]);
+
+  const updateConversationAssignment = useCallback(async (agentId: string | null) => {
+    if (!activeId) return;
+
+    try {
+      const response = await fetch(`/api/zenith/conversations/${activeId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assigned_agent_id: agentId }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Falha ao atribuir agente");
+      }
+
+      setConversations((current) =>
+        current.map((c) =>
+          c.id === activeId ? { ...c, assigned_agent_id: agentId } : c
+        )
+      );
+      toast.success(agentId ? "Atribuído com sucesso" : "Atribuição removida");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao atribuir agente");
+    }
+  }, [activeId]);
+
   /*
    * Mantemos as referências atuais sem
    * recriar a conexão SSE quando a thread
@@ -757,18 +877,47 @@ export function ZenithInboxPage() {
     };
 
     return () => {
-      disposed =
-        true;
-
+      disposed = true;
       if (refreshTimer) {
-        clearTimeout(
-          refreshTimer,
-        );
+        clearTimeout(refreshTimer);
       }
-
       source.close();
     };
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    fetch("/api/account/members")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!disposed && data.members) {
+          setAgents(data.members);
+        }
+      })
+      .catch(console.error);
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  /*
+  useEffect(() => {
+    const params =
+      new URLSearchParams(
+        window.location.search,
+      );
+
+    const deepLinkId =
+      params.get("c");
+
+    void loadConversations(
+      deepLinkId,
+    );
+
+    // O primeiro carregamento deve ocorrer uma vez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+*/
 
   useEffect(() => {
     const params =
@@ -1403,21 +1552,32 @@ export function ZenithInboxPage() {
               </div>
 
               <footer className="border-t border-border bg-card p-4">
-                <div className="mx-auto flex max-w-4xl items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3">
-                  <Clock3 className="size-4 shrink-0 text-muted-foreground" />
-
-                  <p className="flex-1 text-xs text-muted-foreground">
-                    Envio externo desabilitado nesta etapa. A próxima camada conectará Meta Cloud API e Evolution através de MessagingProvider.
-                  </p>
-
+                <form
+                  className="mx-auto flex max-w-4xl items-end gap-3 rounded-lg border border-border bg-background p-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void sendMessage();
+                  }}
+                >
+                  <Input
+                    value={composerText}
+                    onChange={(e) => setComposerText(e.target.value)}
+                    placeholder="Digite uma mensagem..."
+                    className="flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+                    disabled={sendingMessage || activeConversation?.status === "closed"}
+                  />
                   <Button
-                    type="button"
+                    type="submit"
                     size="sm"
-                    disabled
+                    disabled={!composerText.trim() || sendingMessage || activeConversation?.status === "closed"}
                   >
-                    Enviar
+                    {sendingMessage ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      "Enviar"
+                    )}
                   </Button>
-                </div>
+                </form>
               </footer>
             </>
           )}
@@ -1521,33 +1681,79 @@ export function ZenithInboxPage() {
                   Status
                 </p>
 
-                <div className="flex items-center gap-2">
-                  {activeConversation.status ===
-                    "open" && (
-                    <CheckCircle2 className="size-4 text-emerald-500" />
-                  )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="flex w-full items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted">
+                    <div className="flex items-center gap-2">
+                      {activeConversation.status === "open" && (
+                        <CheckCircle2 className="size-4 text-emerald-500" />
+                      )}
 
-                  {activeConversation.status ===
-                    "pending" && (
-                    <Clock3 className="size-4 text-amber-500" />
-                  )}
+                      {activeConversation.status === "pending" && (
+                        <Clock3 className="size-4 text-amber-500" />
+                      )}
 
-                  {activeConversation.status ===
-                    "closed" && (
-                    <XCircle className="size-4 text-muted-foreground" />
-                  )}
+                      {activeConversation.status === "closed" && (
+                        <XCircle className="size-4 text-muted-foreground" />
+                      )}
 
-                  <span className="text-sm">
-                    {
-                      statusLabels[
-                        activeConversation.status
-                      ]
-                    }
-                  </span>
-                </div>
+                      <span>
+                        {statusLabels[activeConversation.status]}
+                      </span>
+                    </div>
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-[260px]">
+                    {(["open", "pending", "closed"] as ConversationStatus[]).map((status) => (
+                      <DropdownMenuItem
+                        key={status}
+                        onClick={() => void updateConversationStatus(status)}
+                        className="flex items-center gap-2 cursor-pointer"
+                      >
+                        {status === "open" && <CheckCircle2 className="size-4 text-emerald-500" />}
+                        {status === "pending" && <Clock3 className="size-4 text-amber-500" />}
+                        {status === "closed" && <XCircle className="size-4 text-muted-foreground" />}
+                        <span>{statusLabels[status]}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
-              <div>
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Atribuição
+                </p>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="flex w-full items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted">
+                    <span className="truncate">
+                      {activeConversation.assigned_agent_id
+                        ? agents.find(a => a.user_id === activeConversation.assigned_agent_id)?.full_name || "Agente Desconhecido"
+                        : "Não atribuído"}
+                    </span>
+                    <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-[260px]">
+                    <DropdownMenuItem
+                      onClick={() => void updateConversationAssignment(null)}
+                      className="cursor-pointer"
+                    >
+                      Não atribuído
+                    </DropdownMenuItem>
+                    {agents.map((agent) => (
+                      <DropdownMenuItem
+                        key={agent.user_id}
+                        onClick={() => void updateConversationAssignment(agent.user_id)}
+                        className="cursor-pointer"
+                      >
+                        {agent.full_name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className="mt-4">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Tags
                 </p>
