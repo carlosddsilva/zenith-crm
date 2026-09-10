@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import {
   and,
   count,
@@ -231,6 +231,7 @@ export async function GET(request: Request) {
         name: contact.name,
         email: contact.email,
         company: contact.company,
+        company_id: contact.companyId,
         avatar_url: contact.avatarUrl,
         created_at: contact.createdAt,
         updated_at: contact.updatedAt,
@@ -256,6 +257,7 @@ export async function POST(request: Request) {
       phone?: string;
       email?: string | null;
       company?: string | null;
+      company_id?: string | null;
       avatar_url?: string | null;
     };
 
@@ -279,6 +281,7 @@ export async function POST(request: Request) {
         name: body.name?.trim() || null,
         email: body.email?.trim() || null,
         company: body.company?.trim() || null,
+        companyId: body.company_id || null,
         avatarUrl:
           body.avatar_url?.trim() || null,
       })
@@ -296,6 +299,7 @@ export async function POST(request: Request) {
           name: contact.name,
           email: contact.email,
           company: contact.company,
+          company_id: contact.companyId,
           avatar_url: contact.avatarUrl,
           created_at: contact.createdAt,
           updated_at: contact.updatedAt,

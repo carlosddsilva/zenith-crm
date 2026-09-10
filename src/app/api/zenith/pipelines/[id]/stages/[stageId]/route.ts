@@ -6,7 +6,7 @@ import { requireZenithRole } from "@/lib/auth/zenith-account";
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string; stageId: string } }
+  { params }: any
 ) {
   try {
     const { accountId } = await requireZenithRole("admin");

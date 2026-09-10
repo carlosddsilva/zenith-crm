@@ -12,6 +12,8 @@ import type {
   PipelineStage,
   Profile,
 } from '@/types';
+import { CompanySelector } from '@/components/companies/company-selector';
+import { ActivityTimeline } from '@/components/activities/activity-timeline';
 import {
   Sheet,
   SheetContent,
@@ -59,6 +61,7 @@ export function DealForm({
   const [value, setValue] = useState('');
   const [currency, setCurrency] = useState(defaultCurrency);
   const [contactId, setContactId] = useState('');
+  const [companyId, setCompanyId] = useState<string | null>('');
   const [stageId, setStageId] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [expectedCloseDate, setExpectedCloseDate] = useState('');
@@ -88,6 +91,7 @@ export function DealForm({
       // contact_id is nullable when the contact has been deleted
       // (migration 004: ON DELETE SET NULL). "" means "no selection".
       setContactId(deal.contact_id ?? '');
+      setCompanyId(deal.company_id ?? '');
       setStageId(deal.stage_id);
       setAssignedTo(deal.assigned_to ?? '');
       setExpectedCloseDate(deal.expected_close_date ?? '');
@@ -97,6 +101,7 @@ export function DealForm({
       setValue('');
       setCurrency(defaultCurrency);
       setContactId('');
+      setCompanyId('');
       setStageId(defaultStageId || stages[0]?.id || '');
       setAssignedTo('');
       setExpectedCloseDate('');
@@ -172,6 +177,7 @@ export function DealForm({
       value: parseFloat(value) || 0,
       currency,
       contact_id: contactId,
+      company_id: companyId,
       pipeline_id: pipelineId,
       stage_id: stageId,
       assigned_to: assignedTo || null,
@@ -327,6 +333,14 @@ export function DealForm({
               )}
             </div>
 
+            <div className="grid gap-2">
+              <Label className="text-muted-foreground">{t('companyLabel', { fallback: 'Empresa' })}</Label>
+              <CompanySelector
+                value={companyId}
+                onChange={setCompanyId}
+              />
+            </div>
+
             <div className="grid grid-cols-[1fr_110px] gap-3">
               <div className="grid gap-2">
                 <Label className="text-muted-foreground">{t('value')}</Label>
@@ -458,6 +472,15 @@ export function DealForm({
                     {t('reopenDeal')}
                   </Button>
                 )}
+              </div>
+            )}
+
+            {deal && (
+              <div className="grid gap-2 mt-4 pt-4 border-t border-border">
+                <Label className="text-muted-foreground uppercase text-xs tracking-wider">Activity Timeline</Label>
+                <div className="mt-2 pl-2">
+                  <ActivityTimeline dealId={deal.id} />
+                </div>
               </div>
             )}
           </div>

@@ -1,4 +1,4 @@
-﻿export * from "./identity";
+export * from "./identity";
 export * from "./auth";
 export * from "./contacts";
 export * from "./custom-fields";
@@ -9,3 +9,6 @@ export * from "./voice";
 export * from "./voice-calls";
 export * from "./ivr";
 export * from "./pipeline";
+export * from "./activities";
+
+export * from './companies';

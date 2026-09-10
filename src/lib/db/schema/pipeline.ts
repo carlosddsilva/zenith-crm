@@ -11,6 +11,7 @@ import {
 
 import { accounts, users } from './identity';
 import { contacts } from './contacts';
+import { companies } from './companies';
 
 export const pipelines = pgTable(
   'pipelines',
@@ -93,6 +94,10 @@ export const deals = pgTable(
       .references(() => users.id, {
         onDelete: 'restrict',
       }),
+
+    companyId: uuid('company_id').references(() => companies.id, {
+      onDelete: 'set null',
+    }),
 
     pipelineId: uuid('pipeline_id')
       .notNull()

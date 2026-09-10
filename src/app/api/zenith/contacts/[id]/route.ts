@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
@@ -19,6 +19,7 @@ function contactResponse(contact: typeof contacts.$inferSelect) {
     name: contact.name,
     email: contact.email,
     company: contact.company,
+    company_id: contact.companyId,
     avatar_url: contact.avatarUrl,
     created_at: contact.createdAt,
     updated_at: contact.updatedAt,
@@ -125,6 +126,7 @@ export async function PATCH(
       phone?: string;
       email?: string | null;
       company?: string | null;
+      company_id?: string | null;
       avatar_url?: string | null;
     };
 
@@ -142,6 +144,10 @@ export async function PATCH(
 
     if ("company" in body) {
       update.company = body.company?.trim() || null;
+    }
+
+    if ("company_id" in body) {
+      update.companyId = body.company_id || null;
     }
 
     if ("avatar_url" in body) {

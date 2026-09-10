@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { CompanySelector } from '@/components/companies/company-selector';
 
 interface ContactFormProps {
   open: boolean;
@@ -55,6 +56,7 @@ export function ContactForm({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [companyId, setCompanyId] = useState<string | null>('');
   const [saving, setSaving] = useState(false);
 
   // Duplicate-phone detection for NEW contacts. `exact` (same digits)
@@ -76,6 +78,7 @@ export function ContactForm({
       setPhone(contact?.phone ?? '');
       setEmail(contact?.email ?? '');
       setCompany(contact?.company ?? '');
+      setCompanyId(contact?.company_id ?? '');
       setSelectedTagIds(contactTags.map((ct) => ct.tag_id));
       setDupMatch(null);
       fetchTags();
@@ -157,6 +160,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            company_id: companyId || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', contactId);
@@ -171,6 +175,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            company_id: companyId || null,
           })
           .select('id')
           .single();
@@ -320,6 +325,16 @@ export function ContactForm({
               onChange={(e) => setCompany(e.target.value)}
               placeholder={t('companyPlaceholder')}
               className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-muted-foreground">
+              {t('companyEntityLabel', { fallback: 'Empresa Vinculada' })}
+            </Label>
+            <CompanySelector
+              value={companyId}
+              onChange={setCompanyId}
             />
           </div>
 

@@ -22,10 +22,14 @@ function makeConversation(
           user_id: "u1",
           account_id: "a1",
           phone: "123",
+          email: null,
+          company: null,
+          company_id: null,
+          avatar_url: null,
           created_at: "",
           updated_at: "",
           ...contact,
-        }
+        } as Conversation["contact"]
       : undefined,
   };
 }
@@ -115,6 +119,10 @@ describe("normalizeConversation", () => {
         user_id: "u1",
         account_id: "a1",
         phone: "123",
+        email: null,
+        company: null,
+        company_id: null,
+        avatar_url: null,
         created_at: "",
         updated_at: "",
         contact_tags: [{ tags: tag("t1", "VIP") }, { tags: null }],

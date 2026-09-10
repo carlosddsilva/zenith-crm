@@ -96,6 +96,26 @@ export interface AccountInvitation {
   accepted_by_user_id: string | null;
 }
 
+export interface Company {
+  id: string;
+  account_id: string;
+  name: string;
+  legal_name?: string | null;
+  document?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  address?: any | null;
+  notes?: string | null;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+
+  // Relations
+  contacts?: Contact[];
+  deals?: Deal[];
+}
+
 export interface Contact {
   id: string;
   user_id: string;
@@ -105,14 +125,16 @@ export interface Contact {
    *  and unique per account. Read-only. */
   phone_normalized?: string;
   name?: string;
-  email?: string;
-  company?: string;
-  avatar_url?: string;
+  email: string | null;
+  company: string | null;
+  company_id?: string | null;
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
-  /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
-   *  Inbox conversation list, for tag filtering). Absent otherwise. */
   tags?: Tag[];
+
+  // Relations
+  companyEntity?: Company | null;
 }
 
 export interface Tag {
@@ -378,6 +400,7 @@ export interface Deal {
    * contact is deleted (ON DELETE SET NULL). History preserved.
    */
   contact_id: string | null;
+  company_id?: string | null;
   conversation_id?: string;
   assigned_to?: string;
   title: string;
@@ -387,10 +410,15 @@ export interface Deal {
   expected_close_date?: string;
   status?: DealStatus;
   created_at: string;
-  updated_at?: string;
-  contact?: Contact;
-  stage?: PipelineStage;
-  assignee?: Profile;
+  updated_at: string;
+  won_at: string | null;
+  lost_at: string | null;
+
+  // View properties returned by joins
+  stage?: PipelineStage | null;
+  contact?: Contact | null;
+  company?: Company | null;
+  assignee?: Profile | null;
 }
 
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
@@ -681,4 +709,71 @@ export interface QuickReply {
   interactive_payload?: InteractiveMessagePayload | null;
   created_at: string;
   updated_at: string;
+}
+
+// ============================================================
+// Tasks & Activities (migration 016)
+// ============================================================
+
+export type TaskStatus = 'pending' | 'completed' | 'cancelled';
+export type TaskPriority = 'low' | 'normal' | 'high';
+
+export interface Task {
+  id: string;
+  account_id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due_at: string | null;
+  completed_at: string | null;
+  assigned_user_id: string | null;
+  contact_id: string | null;
+  deal_id: string | null;
+  company_id?: string | null;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+
+  // Relations
+  assignee?: Profile | null;
+  contact?: Contact | null;
+  deal?: Deal | null;
+  company?: Company | null;
+  created_by?: Profile | null;
+}
+
+export interface Note {
+  id: string;
+  account_id: string;
+  content: string;
+  contact_id: string | null;
+  deal_id: string | null;
+  company_id?: string | null;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+
+  // Relations
+  created_by?: Profile | null;
+  company?: Company | null;
+}
+
+export interface Activity {
+  id: string;
+  account_id: string;
+  type: string;
+  actor_user_id: string | null;
+  contact_id: string | null;
+  deal_id: string | null;
+  task_id: string | null;
+  company_id?: string | null;
+  metadata: any | null;
+  occurred_at: string;
+  created_at: string;
+
+  // Relations
+  actor?: Profile | null;
+  task?: Task | null;
+  company?: Company | null;
 }

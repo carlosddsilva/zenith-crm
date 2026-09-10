@@ -63,6 +63,8 @@ const SAMPLE_CONTACT: Contact = {
   phone: '+1234567890',
   email: 'john@example.com',
   company: 'Acme Corp',
+  company_id: null,
+  avatar_url: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -210,8 +212,8 @@ export function Step3Personalize({
           const fieldMap: Record<string, string | undefined> = {
             name: contact.name,
             phone: contact.phone,
-            email: contact.email,
-            company: contact.company,
+            email: contact.email || undefined,
+            company: contact.company || undefined,
           };
           replacement = fieldMap[mapping.value] ?? placeholder;
         } else if (mapping.type === 'custom_field' && mapping.value) {

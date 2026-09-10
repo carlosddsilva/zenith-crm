@@ -6,7 +6,7 @@ import { requireZenithRole } from '@/lib/auth/zenith-account';
 
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
   try {
     const { accountId } = await requireZenithRole('admin');
@@ -58,7 +58,7 @@ export async function PATCH(
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
   try {
     const { accountId } = await requireZenithRole('admin');

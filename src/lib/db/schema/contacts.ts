@@ -1,4 +1,4 @@
-﻿import {
+import {
   index,
   pgTable,
   text,
@@ -8,6 +8,7 @@
 } from "drizzle-orm/pg-core";
 
 import { accounts, users } from "./identity";
+import { companies } from "./companies";
 
 export const contacts = pgTable(
   "contacts",
@@ -19,6 +20,10 @@ export const contacts = pgTable(
       .references(() => accounts.id, {
         onDelete: "cascade",
       }),
+
+    companyId: uuid("company_id").references(() => companies.id, {
+      onDelete: "set null",
+    }),
 
     userId: uuid("user_id")
       .notNull()

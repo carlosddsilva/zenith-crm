@@ -6,7 +6,7 @@ import { requireZenithRole } from '@/lib/auth/zenith-account';
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
   try {
     const { accountId } = await requireZenithRole('agent');
@@ -46,7 +46,7 @@ export async function GET(
 
 export async function PUT(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
   try {
     const { accountId } = await requireZenithRole('admin');

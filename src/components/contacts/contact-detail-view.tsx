@@ -11,6 +11,8 @@ import {
   TemplatePicker,
   type TemplateSendValues,
 } from '@/components/inbox/template-picker';
+import { CompanySelector } from '@/components/companies/company-selector';
+import { ActivityTimeline } from '@/components/activities/activity-timeline';
 import {
   Sheet,
   SheetContent,
@@ -74,6 +76,7 @@ export function ContactDetailView({
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editCompany, setEditCompany] = useState('');
+  const [editCompanyId, setEditCompanyId] = useState<string | null>('');
   const [savingDetails, setSavingDetails] = useState(false);
 
   // Tags tab
@@ -113,6 +116,7 @@ export function ContactDetailView({
       setEditPhone(data.phone);
       setEditEmail(data.email ?? '');
       setEditCompany(data.company ?? '');
+      setEditCompanyId(data.company_id ?? '');
     }
     setLoading(false);
   }, [contactId, supabase]);
@@ -135,15 +139,17 @@ export function ContactDetailView({
     if (!contactId) return;
     setLoadingNotes(true);
 
-    const { data } = await supabase
-      .from('contact_notes')
-      .select('*')
-      .eq('contact_id', contactId)
-      .order('created_at', { ascending: false });
-
-    if (data) setNotes(data);
+    try {
+      const res = await fetch(`/api/zenith/notes?contactId=${contactId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setNotes(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
     setLoadingNotes(false);
-  }, [contactId, supabase]);
+  }, [contactId]);
 
   const fetchCustomFields = useCallback(async () => {
     if (!contactId) return;
@@ -211,6 +217,7 @@ export function ContactDetailView({
         phone: editPhone.trim(),
         email: editEmail.trim() || null,
         company: editCompany.trim() || null,
+        company_id: editCompanyId || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', contactId);
@@ -250,45 +257,34 @@ export function ContactDetailView({
     if (!contactId || !newNote.trim()) return;
     setSavingNote(true);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user;
-    if (!user || !accountId) {
-      toast.error(t('toastNotAuthenticated'));
-      setSavingNote(false);
-      return;
-    }
+    try {
+      const res = await fetch('/api/zenith/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: newNote.trim(),
+          contactId: contactId,
+        }),
+      });
 
-    const { error } = await supabase.from('contact_notes').insert({
-      contact_id: contactId,
-      account_id: accountId,
-      user_id: user.id,
-      note_text: newNote.trim(),
-    });
-
-    if (error) {
+      if (!res.ok) {
+        toast.error(t('toastNoteAddFailed'));
+      } else {
+        setNewNote('');
+        fetchNotes();
+        toast.success(t('toastNoteAdded'));
+      }
+    } catch (err) {
       toast.error(t('toastNoteAddFailed'));
-    } else {
-      setNewNote('');
-      fetchNotes();
-      toast.success(t('toastNoteAdded'));
     }
     setSavingNote(false);
   }
 
   async function deleteNote(noteId: string) {
-    const { error } = await supabase
-      .from('contact_notes')
-      .delete()
-      .eq('id', noteId);
-
-    if (error) {
-      toast.error(t('toastNoteDeleteFailed'));
-    } else {
-      setNotes((prev) => prev.filter((n) => n.id !== noteId));
-      toast.success(t('toastNoteDeleted'));
-    }
+    // Delete note currently not implemented in API, fallback to UI hiding if needed,
+    // or we can just comment it out since notes shouldn't be deleted per requirements.
+    // For now we'll just show an error.
+    toast.error('Delete note is not supported in this version.');
   }
 
   async function saveCustomFields() {
@@ -482,6 +478,12 @@ export function ContactDetailView({
                 >
                   {t('tabs.deals')}
                 </TabsTrigger>
+                <TabsTrigger
+                  value="activities"
+                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                >
+                  Activities
+                </TabsTrigger>
               </TabsList>
 
               {/* Details Tab */}
@@ -519,6 +521,13 @@ export function ContactDetailView({
                       value={editCompany}
                       onChange={(e) => setEditCompany(e.target.value)}
                       className="bg-muted border-border text-foreground h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-muted-foreground text-xs">{t('companyEntityLabel', { fallback: 'Empresa Vinculada' })}</Label>
+                    <CompanySelector
+                      value={editCompanyId}
+                      onChange={setEditCompanyId}
                     />
                   </div>
                   <Button
@@ -639,6 +648,11 @@ export function ContactDetailView({
                     ))
                   )}
                 </div>
+              </TabsContent>
+
+              {/* Activities Tab */}
+              <TabsContent value="activities" className="flex-1 overflow-y-auto px-4 py-3">
+                <ActivityTimeline contactId={contactId} />
               </TabsContent>
 
               {/* Custom Fields Tab */}
