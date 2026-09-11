@@ -1,4 +1,4 @@
-﻿# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1
 
 # ---------------------------------------------------------------
 # Stage 1 â€” install dependencies (cached until package*.json change)
@@ -64,6 +64,8 @@ COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 
 COPY --from=builder --chown=nextjs:nextjs /app/scripts/voice-events-worker.mjs ./scripts/voice-events-worker.mjs
+COPY --from=builder --chown=nextjs:nextjs /app/scripts/automation-worker.mjs ./scripts/automation-worker.mjs
+COPY --from=deps --chown=nextjs:nextjs /app/node_modules ./node_modules
 
 USER nextjs
 EXPOSE 3000

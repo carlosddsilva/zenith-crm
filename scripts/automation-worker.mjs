@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import fetch from 'node-fetch'; // assuming node-fetch is available, or we use native fetch if Node 18+
+
 
 const APP_BASE_URL = (process.env.VOICE_WORKER_APP_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 const WORKER_SECRET = process.env.ZENITH_WORKER_SECRET || 'dev-secret';
