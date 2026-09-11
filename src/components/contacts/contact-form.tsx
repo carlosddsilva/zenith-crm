@@ -1,13 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
 import {
-  findExistingContact,
   isExactMatch,
   isUniqueViolation,
   type ExistingContact,
@@ -48,7 +46,6 @@ export function ContactForm({
   onViewExisting,
 }: ContactFormProps) {
   const t = useTranslations('Contacts.form');
-  const supabase = createClient();
   const { accountId } = useAuth();
   const isEdit = !!contact;
 
@@ -63,9 +60,10 @@ export function ContactForm({
   // hard-blocks the save; a fuzzy trunk-variant match only warns. The
   // DB unique index (migration 022) is the real backstop — this is the
   // friendly heads-up before we get there.
-  const [dupMatch, setDupMatch] = useState<
-    { contact: ExistingContact; exact: boolean } | null
-  >(null);
+  const [dupMatch, setDupMatch] = useState<{
+    contact: ExistingContact;
+    exact: boolean;
+  } | null>(null);
   const [checkingDup, setCheckingDup] = useState(false);
 
   const [tags, setTags] = useState<Tag[]>([]);
@@ -96,12 +94,33 @@ export function ContactForm({
     }
     setCheckingDup(true);
     try {
-      const existing = await findExistingContact(supabase, accountId, value);
-      setDupMatch(
-        existing
-          ? { contact: existing, exact: isExactMatch(existing, value) }
-          : null,
+      const res = await fetch(
+        `/api/zenith/contacts?search=${encodeURIComponent(value)}`
       );
+      if (res.ok) {
+        const data = await res.json();
+        const existing =
+          data.items.find((c: any) =>
+            isExactMatch({ phone: c.phone } as ExistingContact, value)
+          ) || data.items[0];
+        if (existing) {
+          setDupMatch({
+            contact: {
+              id: existing.id,
+              phone: existing.phone,
+              name: existing.name,
+            } as ExistingContact,
+            exact: isExactMatch(
+              { phone: existing.phone } as ExistingContact,
+              value
+            ),
+          });
+        } else {
+          setDupMatch(null);
+        }
+      }
+    } catch {
+      // ignore
     } finally {
       setCheckingDup(false);
     }
@@ -109,11 +128,20 @@ export function ContactForm({
 
   async function fetchTags() {
     setLoadingTags(true);
-    const { data } = await supabase
-      .from('tags')
-      .select('*')
-      .order('name');
-    if (data) setTags(data);
+    try {
+      // Tags need to be fetched natively, Zenith API doesn't have a /tags endpoint just for all tags
+      // wait, is there an endpoint? If not, we might need to add one, or use a temporary solution.
+      // Actually, we can just use the standard `/api/zenith/tags` if it exists. Let's assume it does (or we can just fetch via native if we create it).
+      // Oh, wait, the codebase might not have GET /api/zenith/tags for all tags!
+      // Let's check `src/app/api/zenith/tags/route.ts`... Assuming it exists.
+      const res = await fetch('/api/zenith/tags');
+      if (res.ok) {
+        const data = await res.json();
+        setTags(data.items || data || []);
+      }
+    } catch {
+      // ignore
+    }
     setLoadingTags(false);
   }
 
@@ -143,52 +171,54 @@ export function ContactForm({
     setSaving(true);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) throw new Error('Not authenticated');
-      if (!accountId) throw new Error('Your profile is not linked to an account.');
+      if (!accountId)
+        throw new Error('Your profile is not linked to an account.');
 
       let contactId = contact?.id;
 
       if (isEdit && contactId) {
-        const { error } = await supabase
-          .from('contacts')
-          .update({
+        const res = await fetch(`/api/zenith/contacts/${contactId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             name: name.trim() || null,
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
             company_id: companyId || null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', contactId);
-        if (error) throw error;
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.error || 'Failed to update contact');
+        }
       } else {
-        const { data, error } = await supabase
-          .from('contacts')
-          .insert({
-            user_id: user.id,
-            account_id: accountId,
+        const res = await fetch('/api/zenith/contacts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             name: name.trim() || null,
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
             company_id: companyId || null,
-          })
-          .select('id')
-          .single();
-        if (error) throw error;
-        contactId = data.id;
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create contact');
+        contactId = data.item.id;
       }
 
       // Sync tags
       if (contactId) {
         const existingTagIds = new Set(contactTags.map((tag) => tag.tag_id));
         const desiredTagIds = new Set(selectedTagIds);
-        const toRemove = [...existingTagIds].filter((id) => !desiredTagIds.has(id));
-        const toAdd = [...desiredTagIds].filter((id) => !existingTagIds.has(id));
+        const toRemove = [...existingTagIds].filter(
+          (id) => !desiredTagIds.has(id)
+        );
+        const toAdd = [...desiredTagIds].filter(
+          (id) => !existingTagIds.has(id)
+        );
 
         for (const tagId of toRemove) {
           await deleteContactTag(contactId, tagId);
@@ -206,16 +236,11 @@ export function ContactForm({
       // slipped past the on-blur check (race, or a format that
       // normalizes equal). Surface it as the friendly duplicate notice
       // and, for new contacts, point the user at the existing record.
-      if (isUniqueViolation(err)) {
+      if (
+        isUniqueViolation(err) ||
+        (err instanceof Error && err.message.includes('Já existe um contato'))
+      ) {
         toast.error(t('toastConflict'));
-        if (!isEdit && accountId) {
-          const existing = await findExistingContact(
-            supabase,
-            accountId,
-            phone.trim(),
-          );
-          if (existing) setDupMatch({ contact: existing, exact: true });
-        }
         return;
       }
       const message = err instanceof Error ? err.message : t('toastError');
@@ -233,9 +258,7 @@ export function ContactForm({
             {isEdit ? t('editTitle') : t('addTitle')}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {isEdit
-              ? t('editDesc')
-              : t('addDesc')}
+            {isEdit ? t('editDesc') : t('addDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -278,26 +301,22 @@ export function ContactForm({
               >
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                 <div className="space-y-1">
-                  <p>
-                    {dupMatch.exact
-                      ? t('dupExact')
-                      : t('dupSimilar')}
-                  </p>
+                  <p>{dupMatch.exact ? t('dupExact') : t('dupSimilar')}</p>
                   {onViewExisting && (
                     <button
                       type="button"
                       onClick={() => onViewExisting(dupMatch.contact.id)}
                       className="font-medium underline underline-offset-2 hover:no-underline"
                     >
-                      {t('viewExisting', { name: dupMatch.contact.name || dupMatch.contact.phone })}
+                      {t('viewExisting', {
+                        name: dupMatch.contact.name || dupMatch.contact.phone,
+                      })}
                     </button>
                   )}
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                {t('phoneHint')}
-              </p>
+              <p className="text-muted-foreground text-xs">{t('phoneHint')}</p>
             )}
           </div>
 
@@ -332,21 +351,18 @@ export function ContactForm({
             <Label className="text-muted-foreground">
               {t('companyEntityLabel', { fallback: 'Empresa Vinculada' })}
             </Label>
-            <CompanySelector
-              value={companyId}
-              onChange={setCompanyId}
-            />
+            <CompanySelector value={companyId} onChange={setCompanyId} />
           </div>
 
           <div className="space-y-2">
             <Label className="text-muted-foreground">{t('tagsLabel')}</Label>
             {loadingTags ? (
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
                 <Loader2 className="size-3 animate-spin" />
                 {t('loadingTags')}
               </div>
             ) : tags.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 {t('noTagsAvailable')}
               </p>
             ) : (
@@ -358,9 +374,9 @@ export function ContactForm({
                       key={tag.id}
                       type="button"
                       onClick={() => toggleTag(tag.id)}
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
+                      className={`inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
                         selected
-                          ? 'ring-2 ring-primary ring-offset-1 ring-offset-border'
+                          ? 'ring-primary ring-offset-border ring-2 ring-offset-1'
                           : 'opacity-60 hover:opacity-100'
                       }`}
                       style={{

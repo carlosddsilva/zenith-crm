@@ -134,6 +134,20 @@ export async function GET(
     );
   }
 
+  const contactId =
+    url.searchParams.get(
+      "contactId",
+    );
+
+  if (contactId) {
+    conditions.push(
+      eq(
+        calls.contactId,
+        contactId,
+      ),
+    );
+  }
+
   const direction =
     url.searchParams.get(
       "direction",
@@ -404,7 +418,7 @@ export async function POST(
       },
     );
   }
-  let contactId =
+  const contactId =
     body.contact_id ??
     null;
 

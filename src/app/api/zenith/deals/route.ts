@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
-import { deals } from "@/lib/db/schema/pipeline";
+import { deals, pipelineStages } from "@/lib/db/schema/pipeline";
 import { contacts } from "@/lib/db/schema/contacts";
 import { companies } from "@/lib/db/schema/companies";
 import { users } from "@/lib/db/schema/identity";
@@ -12,10 +12,15 @@ export async function GET(req: Request) {
     const { accountId } = await requireZenithRole("agent");
     const { searchParams } = new URL(req.url);
     const pipelineId = searchParams.get("pipelineId");
+    const contactId = searchParams.get("contactId");
 
-    if (!pipelineId) {
-      return NextResponse.json({ error: "pipelineId is required" }, { status: 400 });
+    if (!pipelineId && !contactId) {
+      return NextResponse.json({ error: "pipelineId or contactId is required" }, { status: 400 });
     }
+
+    const conditions = [eq(deals.accountId, accountId)];
+    if (pipelineId) conditions.push(eq(deals.pipelineId, pipelineId));
+    if (contactId) conditions.push(eq(deals.contactId, contactId));
 
     const dealsList = await db
       .select({
@@ -23,20 +28,23 @@ export async function GET(req: Request) {
         contact: contacts,
         company: companies,
         assignee: users,
+        stage: pipelineStages,
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
       .leftJoin(companies, eq(deals.companyId, companies.id))
       .leftJoin(users, eq(deals.assignedTo, users.id))
-      .where(and(eq(deals.accountId, accountId), eq(deals.pipelineId, pipelineId)))
+      .leftJoin(pipelineStages, eq(deals.stageId, pipelineStages.id))
+      .where(and(...conditions))
       .orderBy(desc(deals.createdAt));
 
     // Map to match the frontend expected format
-    const formattedDeals = dealsList.map(({ deal, contact, company, assignee }) => ({
+    const formattedDeals = dealsList.map(({ deal, contact, company, assignee, stage }) => ({
       ...deal,
       contact: contact || null,
       company: company || null,
       assignee: assignee || null,
+      stage: stage || null,
       // Map JS camelCase back to snake_case for the legacy frontend to avoid mass UI changes
       stage_id: deal.stageId,
       pipeline_id: deal.pipelineId,

@@ -1,12 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
+import type {
+  Contact,
+  Tag,
+  ContactTag,
+  ContactNote,
+  CustomField,
+  ContactCustomValue,
+  Deal,
+  MessageTemplate,
+} from '@/types';
 import {
   TemplatePicker,
   type TemplateSendValues,
@@ -58,8 +66,8 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
-  const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -100,101 +108,234 @@ export function ContactDetailView({
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
 
-  const fetchContact = useCallback(async () => {
-    if (!contactId) return;
-    setLoading(true);
+  // Tasks tab
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
 
-    const { data } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('id', contactId)
-      .single();
+  // Conversations tab
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [loadingConversations, setLoadingConversations] = useState(false);
 
-    if (data) {
-      setContact(data);
-      setEditName(data.name ?? '');
-      setEditPhone(data.phone);
-      setEditEmail(data.email ?? '');
-      setEditCompany(data.company ?? '');
-      setEditCompanyId(data.company_id ?? '');
-    }
-    setLoading(false);
-  }, [contactId, supabase]);
+  // Calls tab
+  const [calls, setCalls] = useState<any[]>([]);
+  const [loadingCalls, setLoadingCalls] = useState(false);
 
-  const fetchTags = useCallback(async () => {
-    if (!contactId) return;
-
-    const [tagsRes, contactTagsRes] = await Promise.all([
-      supabase.from('tags').select('*').order('name'),
-      supabase.from('contact_tags').select('tag_id').eq('contact_id', contactId),
-    ]);
-
-    if (tagsRes.data) setAllTags(tagsRes.data);
-    if (contactTagsRes.data) {
-      setContactTagIds(contactTagsRes.data.map((ct) => ct.tag_id));
-    }
-  }, [contactId, supabase]);
-
-  const fetchNotes = useCallback(async () => {
-    if (!contactId) return;
-    setLoadingNotes(true);
-
-    try {
-      const res = await fetch(`/api/zenith/notes?contactId=${contactId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setNotes(data);
+  const fetchContact = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/zenith/contacts/${contactId}`, {
+          signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setContact(data);
+          setEditName(data.name ?? '');
+          setEditPhone(data.phone);
+          setEditEmail(data.email ?? '');
+          setEditCompany(data.company ?? '');
+          setEditCompanyId(data.company_id ?? '');
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error(e);
       }
-    } catch (err) {
-      console.error(err);
-    }
-    setLoadingNotes(false);
-  }, [contactId]);
+      setLoading(false);
+    },
+    [contactId]
+  );
 
-  const fetchCustomFields = useCallback(async () => {
-    if (!contactId) return;
-    setLoadingCustom(true);
+  const fetchTags = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      try {
+        const [tagsRes, contactTagsRes] = await Promise.all([
+          fetch('/api/zenith/tags', { signal }),
+          fetch(`/api/zenith/contacts/${contactId}/tags`, { signal }),
+        ]);
 
-    const [fieldsRes, valuesRes] = await Promise.all([
-      supabase.from('custom_fields').select('*').order('field_name'),
-      supabase
-        .from('contact_custom_values')
-        .select('*')
-        .eq('contact_id', contactId),
-    ]);
+        if (tagsRes.ok) {
+          const data = await tagsRes.json();
+          setAllTags(data.items || data || []);
+        }
+        if (contactTagsRes.ok) {
+          const data = await contactTagsRes.json();
+          // Assume data returns { items: [{ tag_id: '...' }] } or similar array
+          setContactTagIds(
+            (data.items || data).map((ct: any) => ct.tag_id || ct.id)
+          );
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error(e);
+      }
+    },
+    [contactId]
+  );
 
-    if (fieldsRes.data) setCustomFields(fieldsRes.data);
-    if (valuesRes.data) {
-      const map: Record<string, string> = {};
-      valuesRes.data.forEach((v) => {
-        map[v.custom_field_id] = v.value ?? '';
-      });
-      setCustomValues(map);
-    }
-    setLoadingCustom(false);
-  }, [contactId, supabase]);
+  const fetchNotes = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      setLoadingNotes(true);
 
-  const fetchDeals = useCallback(async () => {
-    if (!contactId) return;
-    setLoadingDeals(true);
-    const { data } = await supabase
-      .from('deals')
-      .select('*, stage:pipeline_stages(*)')
-      .eq('contact_id', contactId)
-      .order('created_at', { ascending: false });
-    setDeals((data ?? []) as Deal[]);
-    setLoadingDeals(false);
-  }, [contactId, supabase]);
+      try {
+        const res = await fetch(`/api/zenith/notes?contactId=${contactId}`, {
+          signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setNotes(data);
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') console.error(err);
+      }
+      setLoadingNotes(false);
+    },
+    [contactId]
+  );
+
+  const fetchCustomFields = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      setLoadingCustom(true);
+      try {
+        const res = await fetch(
+          `/api/zenith/contacts/${contactId}/custom-fields`,
+          { signal }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setCustomFields(data.fields || []);
+
+          const map: Record<string, string> = {};
+          (data.values || []).forEach((v: any) => {
+            map[v.custom_field_id] = v.value ?? '';
+          });
+          setCustomValues(map);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error(e);
+      }
+      setLoadingCustom(false);
+    },
+    [contactId]
+  );
+
+  const fetchDeals = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      setLoadingDeals(true);
+      try {
+        const res = await fetch(`/api/zenith/deals?contactId=${contactId}`, {
+          signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDeals(data);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error(e);
+      }
+      setLoadingDeals(false);
+    },
+    [contactId]
+  );
+
+  const fetchTasks = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      setLoadingTasks(true);
+      try {
+        const res = await fetch(`/api/zenith/tasks?contactId=${contactId}`, {
+          signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setTasks(data);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error(e);
+      }
+      setLoadingTasks(false);
+    },
+    [contactId]
+  );
+
+  const fetchConversations = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      setLoadingConversations(true);
+      try {
+        // Endpoint depends on architecture, maybe /api/zenith/conversations?contactId=...
+        const res = await fetch(
+          `/api/zenith/conversations?contactId=${contactId}`,
+          { signal }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setConversations(data.items || data || []);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error(e);
+      }
+      setLoadingConversations(false);
+    },
+    [contactId]
+  );
+
+  const fetchCalls = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!contactId) return;
+      setLoadingCalls(true);
+      try {
+        const res = await fetch(`/api/zenith/calls?contactId=${contactId}`, {
+          signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCalls(data.items || data || []);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error(e);
+      }
+      setLoadingCalls(false);
+    },
+    [contactId]
+  );
 
   useEffect(() => {
     if (open && contactId) {
-      fetchContact();
-      fetchTags();
-      fetchNotes();
-      fetchCustomFields();
-      fetchDeals();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const { signal } = controller;
+
+      fetchContact(signal);
+      fetchTags(signal);
+      fetchNotes(signal);
+      fetchCustomFields(signal);
+      fetchDeals(signal);
+      fetchTasks(signal);
+      fetchConversations(signal);
+      fetchCalls(signal);
+
+      return () => {
+        controller.abort();
+      };
     }
-  }, [open, contactId, fetchContact, fetchTags, fetchNotes, fetchCustomFields, fetchDeals]);
+  }, [
+    open,
+    contactId,
+    fetchContact,
+    fetchTags,
+    fetchNotes,
+    fetchCustomFields,
+    fetchDeals,
+    fetchTasks,
+    fetchConversations,
+    fetchCalls,
+  ]);
 
   async function copyPhone() {
     if (!contact) return;
@@ -210,24 +351,28 @@ export function ContactDetailView({
     }
 
     setSavingDetails(true);
-    const { error } = await supabase
-      .from('contacts')
-      .update({
-        name: editName.trim() || null,
-        phone: editPhone.trim(),
-        email: editEmail.trim() || null,
-        company: editCompany.trim() || null,
-        company_id: editCompanyId || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', contactId);
+    try {
+      const res = await fetch(`/api/zenith/contacts/${contactId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName.trim() || null,
+          phone: editPhone.trim(),
+          email: editEmail.trim() || null,
+          company: editCompany.trim() || null,
+          company_id: editCompanyId || null,
+        }),
+      });
 
-    if (error) {
-      toast.error(t('toastUpdateFailed'));
-    } else {
+      if (!res.ok) {
+        throw new Error('Failed to save details');
+      }
+
       toast.success(t('toastUpdated'));
       fetchContact();
       onUpdated();
+    } catch {
+      toast.error(t('toastUpdateFailed'));
     }
     setSavingDetails(false);
   }
@@ -248,7 +393,9 @@ export function ContactDetailView({
       }
       onUpdated();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('toastUpdateFailed'));
+      toast.error(
+        error instanceof Error ? error.message : t('toastUpdateFailed')
+      );
     }
     setSavingTags(false);
   }
@@ -292,26 +439,16 @@ export function ContactDetailView({
     setSavingCustom(true);
 
     try {
-      // Delete existing values and re-insert
-      await supabase
-        .from('contact_custom_values')
-        .delete()
-        .eq('contact_id', contactId);
+      const res = await fetch(
+        `/api/zenith/contacts/${contactId}/custom-fields`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: customValues }),
+        }
+      );
 
-      const rows = Object.entries(customValues)
-        .filter(([, val]) => val.trim())
-        .map(([fieldId, val]) => ({
-          contact_id: contactId,
-          custom_field_id: fieldId,
-          value: val.trim(),
-        }));
-
-      if (rows.length > 0) {
-        const { error } = await supabase
-          .from('contact_custom_values')
-          .insert(rows);
-        if (error) throw error;
-      }
+      if (!res.ok) throw new Error('Failed to save custom fields');
 
       toast.success(t('toastCustomFieldsSaved'));
     } catch {
@@ -322,7 +459,7 @@ export function ContactDetailView({
 
   async function handleSendTemplate(
     template: MessageTemplate,
-    values: TemplateSendValues,
+    values: TemplateSendValues
   ) {
     if (!contactId) return;
     setSendingTemplate(true);
@@ -374,400 +511,555 @@ export function ContactDetailView({
 
   return (
     <>
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="bg-popover border-border text-popover-foreground sm:max-w-lg w-full p-0"
-      >
-        {loading || !contact ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="size-6 animate-spin text-primary" />
-          </div>
-        ) : (
-          <div className="flex flex-col h-full">
-            {/* Header */}
-            <SheetHeader className="p-4 border-b border-border/50">
-              <div className="flex items-center gap-3">
-                <Avatar className="size-12 bg-muted border border-border">
-                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
-                    {getInitials(contact.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <SheetTitle className="text-popover-foreground truncate">
-                    {contact.name || t('unnamed')}
-                  </SheetTitle>
-                  <SheetDescription className="text-muted-foreground text-xs mt-0.5">
-                    {t('contactDetailsDesc')}
-                  </SheetDescription>
-                  <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                    <button
-                      onClick={copyPhone}
-                      className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
-                    >
-                      <Phone className="size-3" />
-                      {contact.phone}
-                      {copiedPhone ? (
-                        <Check className="size-3 text-primary" />
-                      ) : (
-                        <Copy className="size-3" />
-                      )}
-                    </button>
-                    {contact.email && (
-                      <span className="flex items-center gap-1">
-                        <Mail className="size-3" />
-                        {contact.email}
-                      </span>
-                    )}
-                    {contact.company && (
-                      <span className="flex items-center gap-1">
-                        <Building2 className="size-3" />
-                        {contact.company}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3">
-                <Button
-                  size="sm"
-                  onClick={() => setTemplatePickerOpen(true)}
-                  disabled={sendingTemplate}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  {sendingTemplate ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <LayoutTemplate className="size-4" />
-                  )}
-                  {t('sendTemplateBtn')}
-                </Button>
-              </div>
-            </SheetHeader>
-
-            {/* Tabs */}
-            <Tabs defaultValue="details" className="flex-1 flex flex-col min-h-0">
-              <TabsList className="bg-muted/50 border-b border-border mx-4 mt-3">
-                <TabsTrigger
-                  value="details"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  {t('tabs.details')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="tags"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  {t('tabs.tags')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="notes"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  {t('tabs.notes')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="custom"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  {t('tabs.custom')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="deals"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  {t('tabs.deals')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="activities"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  Activities
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Details Tab */}
-              <TabsContent value="details" className="flex-1 overflow-y-auto px-4 py-3">
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">{t('name')}</Label>
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">
-                      {t('phone')} <span className="text-red-400">*</span>
-                    </Label>
-                    <Input
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">{t('email')}</Label>
-                    <Input
-                      value={editEmail}
-                      onChange={(e) => setEditEmail(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">{t('company')}</Label>
-                    <Input
-                      value={editCompany}
-                      onChange={(e) => setEditCompany(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">{t('companyEntityLabel', { fallback: 'Empresa Vinculada' })}</Label>
-                    <CompanySelector
-                      value={editCompanyId}
-                      onChange={setEditCompanyId}
-                    />
-                  </div>
-                  <Button
-                    onClick={saveDetails}
-                    disabled={savingDetails}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
-                    size="sm"
-                  >
-                    {savingDetails ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Save className="size-3.5" />
-                    )}
-                    {t('saveChangesBtn')}
-                  </Button>
-                </div>
-              </TabsContent>
-
-              {/* Tags Tab */}
-              <TabsContent value="tags" className="flex-1 overflow-y-auto px-4 py-3">
-                <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    {t('tagsTab.clickTagDesc')}
-                  </p>
-                  {allTags.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('tagsTab.noTagsAvailable')}
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {allTags.map((tag) => {
-                        const selected = contactTagIds.includes(tag.id);
-                        return (
-                          <button
-                            key={tag.id}
-                            onClick={() => toggleTag(tag.id)}
-                            disabled={savingTags}
-                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer ${
-                              selected
-                                ? 'ring-2 ring-primary ring-offset-1 ring-offset-border'
-                                : 'opacity-50 hover:opacity-80'
-                            }`}
-                            style={{
-                              backgroundColor: tag.color + '20',
-                              color: tag.color,
-                            }}
-                          >
-                            {selected && <Check className="size-3 mr-1" />}
-                            {tag.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              {/* Notes Tab */}
-              <TabsContent value="notes" className="flex-1 flex flex-col min-h-0 px-4 py-3">
-                <div className="space-y-2 mb-3">
-                  <Textarea
-                    value={newNote}
-                    onChange={(e) => setNewNote(e.target.value)}
-                    placeholder={t('notesTab.placeholder')}
-                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground min-h-[60px] text-sm resize-none"
-                  />
-                  <Button
-                    onClick={addNote}
-                    disabled={!newNote.trim() || savingNote}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                    size="sm"
-                  >
-                    {savingNote ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Plus className="size-3.5" />
-                    )}
-                    {t('notesTab.save')}
-                  </Button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-2">
-                  {loadingNotes ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : notes.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      {t('notesTab.noNotes')}
-                    </p>
-                  ) : (
-                    notes.map((note) => (
-                      <div
-                        key={note.id}
-                        className="rounded-lg bg-muted/50 border border-border/50 p-3 group"
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="right"
+          className="bg-popover border-border text-popover-foreground w-full p-0 sm:max-w-lg"
+        >
+          {loading || !contact ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="text-primary size-6 animate-spin" />
+            </div>
+          ) : (
+            <div className="flex h-full flex-col">
+              {/* Header */}
+              <SheetHeader className="border-border/50 border-b p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar className="bg-muted border-border size-12 border">
+                    <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+                      {getInitials(contact.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <SheetTitle className="text-popover-foreground truncate">
+                      {contact.name || t('unnamed')}
+                    </SheetTitle>
+                    <SheetDescription className="text-muted-foreground mt-0.5 text-xs">
+                      {t('contactDetailsDesc')}
+                    </SheetDescription>
+                    <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-3 text-xs">
+                      <button
+                        onClick={copyPhone}
+                        className="hover:text-primary flex cursor-pointer items-center gap-1 transition-colors"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm text-muted-foreground whitespace-pre-wrap flex-1">
-                            {note.note_text}
-                          </p>
-                          <button
-                            onClick={() => deleteNote(note.id)}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all cursor-pointer shrink-0"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1.5">
-                          {new Date(note.created_at).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </TabsContent>
-
-              {/* Activities Tab */}
-              <TabsContent value="activities" className="flex-1 overflow-y-auto px-4 py-3">
-                <ActivityTimeline contactId={contactId} />
-              </TabsContent>
-
-              {/* Custom Fields Tab */}
-              <TabsContent value="custom" className="flex-1 overflow-y-auto px-4 py-3">
-                {loadingCustom ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                        <Phone className="size-3" />
+                        {contact.phone}
+                        {copiedPhone ? (
+                          <Check className="text-primary size-3" />
+                        ) : (
+                          <Copy className="size-3" />
+                        )}
+                      </button>
+                      {contact.email && (
+                        <span className="flex items-center gap-1">
+                          <Mail className="size-3" />
+                          {contact.email}
+                        </span>
+                      )}
+                      {contact.company && (
+                        <span className="flex items-center gap-1">
+                          <Building2 className="size-3" />
+                          {contact.company}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                ) : customFields.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">
-                    {t('noCustomFields')}
-                  </p>
-                ) : (
+                </div>
+                <div className="mt-3">
+                  <Button
+                    size="sm"
+                    onClick={() => setTemplatePickerOpen(true)}
+                    disabled={sendingTemplate}
+                    className="bg-primary text-primary-foreground hover:bg-primary/90"
+                  >
+                    {sendingTemplate ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <LayoutTemplate className="size-4" />
+                    )}
+                    {t('sendTemplateBtn')}
+                  </Button>
+                </div>
+              </SheetHeader>
+
+              {/* Tabs */}
+              <Tabs
+                defaultValue="details"
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <TabsList className="bg-muted/50 border-border mx-4 mt-3 border-b">
+                  <TabsTrigger
+                    value="details"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    {t('tabs.details')}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="tags"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    {t('tabs.tags')}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="notes"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    {t('tabs.notes')}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="custom"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    {t('tabs.custom')}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="deals"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    {t('tabs.deals')}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="tasks"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    Tasks
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="conversations"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    Conversations
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="calls"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    Calls
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="activities"
+                    className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  >
+                    Activities
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Details Tab */}
+                <TabsContent
+                  value="details"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
                   <div className="space-y-3">
-                    {customFields.map((field) => (
-                      <div key={field.id} className="space-y-1.5">
-                        <Label className="text-muted-foreground text-xs capitalize">
-                          {field.field_name}
-                        </Label>
-                        <Input
-                          value={customValues[field.id] ?? ''}
-                          onChange={(e) =>
-                            setCustomValues((prev) => ({
-                              ...prev,
-                              [field.id]: e.target.value,
-                            }))
-                          }
-                          placeholder={t('enterCustomField', { name: field.field_name })}
-                          className="bg-muted border-border text-foreground h-8 text-sm placeholder:text-muted-foreground"
-                        />
-                      </div>
-                    ))}
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">
+                        {t('name')}
+                      </Label>
+                      <Input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="bg-muted border-border text-foreground h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">
+                        {t('phone')} <span className="text-red-400">*</span>
+                      </Label>
+                      <Input
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value)}
+                        className="bg-muted border-border text-foreground h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">
+                        {t('email')}
+                      </Label>
+                      <Input
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        className="bg-muted border-border text-foreground h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">
+                        {t('company')}
+                      </Label>
+                      <Input
+                        value={editCompany}
+                        onChange={(e) => setEditCompany(e.target.value)}
+                        className="bg-muted border-border text-foreground h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">
+                        {t('companyEntityLabel', {
+                          fallback: 'Empresa Vinculada',
+                        })}
+                      </Label>
+                      <CompanySelector
+                        value={editCompanyId}
+                        onChange={setEditCompanyId}
+                      />
+                    </div>
                     <Button
-                      onClick={saveCustomFields}
-                      disabled={savingCustom}
+                      onClick={saveDetails}
+                      disabled={savingDetails}
                       className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
                       size="sm"
                     >
-                      {savingCustom ? (
+                      {savingDetails ? (
                         <Loader2 className="size-3.5 animate-spin" />
                       ) : (
                         <Save className="size-3.5" />
                       )}
-                      {t('saveCustomFieldsBtn')}
+                      {t('saveChangesBtn')}
                     </Button>
                   </div>
-                )}
-              </TabsContent>
+                </TabsContent>
 
-              {/* Deals Tab */}
-              <TabsContent value="deals" className="flex-1 overflow-y-auto px-4 py-3">
-                {loadingDeals ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="size-5 animate-spin text-primary" />
-                  </div>
-                ) : deals.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t('dealsTab.noDeals')}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {deals.map((deal) => (
-                      <div
-                        key={deal.id}
-                        className="rounded-lg border border-border bg-muted/50 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground">
-                            {deal.title}
-                          </p>
-                          {deal.stage && (
-                            <span
-                              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                {/* Tags Tab */}
+                <TabsContent
+                  value="tags"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
+                  <div className="space-y-3">
+                    <p className="text-muted-foreground text-xs">
+                      {t('tagsTab.clickTagDesc')}
+                    </p>
+                    {allTags.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">
+                        {t('tagsTab.noTagsAvailable')}
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {allTags.map((tag) => {
+                          const selected = contactTagIds.includes(tag.id);
+                          return (
+                            <button
+                              key={tag.id}
+                              onClick={() => toggleTag(tag.id)}
+                              disabled={savingTags}
+                              className={`inline-flex cursor-pointer items-center rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                                selected
+                                  ? 'ring-primary ring-offset-border ring-2 ring-offset-1'
+                                  : 'opacity-50 hover:opacity-80'
+                              }`}
                               style={{
-                                backgroundColor: `${deal.stage.color}20`,
-                                color: deal.stage.color,
+                                backgroundColor: tag.color + '20',
+                                color: tag.color,
                               }}
                             >
-                              {deal.stage.name}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <DollarSign className="size-3" />
-                            {formatCurrency(
-                              deal.value ?? 0,
-                              deal.currency || defaultCurrency,
-                            )}
-                          </span>
-                          {deal.status && deal.status !== 'open' && (
-                            <span
-                              className={
-                                deal.status === 'won'
-                                  ? 'text-primary'
-                                  : 'text-red-400'
-                              }
-                            >
-                              {deal.status}
-                            </span>
-                          )}
-                        </div>
+                              {selected && <Check className="mr-1 size-3" />}
+                              {tag.name}
+                            </button>
+                          );
+                        })}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-              </TabsContent>
-            </Tabs>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
-    <TemplatePicker
-      open={templatePickerOpen}
-      onOpenChange={setTemplatePickerOpen}
-      onSelect={handleSendTemplate}
-    />
+                </TabsContent>
+
+                {/* Notes Tab */}
+                <TabsContent
+                  value="notes"
+                  className="flex min-h-0 flex-1 flex-col px-4 py-3"
+                >
+                  <div className="mb-3 space-y-2">
+                    <Textarea
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      placeholder={t('notesTab.placeholder')}
+                      className="bg-muted border-border text-foreground placeholder:text-muted-foreground min-h-[60px] resize-none text-sm"
+                    />
+                    <Button
+                      onClick={addNote}
+                      disabled={!newNote.trim() || savingNote}
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                      size="sm"
+                    >
+                      {savingNote ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="size-3.5" />
+                      )}
+                      {t('notesTab.save')}
+                    </Button>
+                  </div>
+
+                  <div className="flex-1 space-y-2 overflow-y-auto">
+                    {loadingNotes ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="text-muted-foreground size-5 animate-spin" />
+                      </div>
+                    ) : notes.length === 0 ? (
+                      <p className="text-muted-foreground py-8 text-center text-sm">
+                        {t('notesTab.noNotes')}
+                      </p>
+                    ) : (
+                      notes.map((note) => (
+                        <div
+                          key={note.id}
+                          className="bg-muted/50 border-border/50 group rounded-lg border p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-muted-foreground flex-1 text-sm whitespace-pre-wrap">
+                              {note.note_text}
+                            </p>
+                            <button
+                              onClick={() => deleteNote(note.id)}
+                              className="text-muted-foreground shrink-0 cursor-pointer opacity-0 transition-all group-hover:opacity-100 hover:text-red-400"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                          <p className="text-muted-foreground mt-1.5 text-xs">
+                            {new Date(note.created_at).toLocaleDateString(
+                              'en-US',
+                              {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              }
+                            )}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </TabsContent>
+
+                {/* Activities Tab */}
+                <TabsContent
+                  value="activities"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
+                  <ActivityTimeline contactId={contactId} />
+                </TabsContent>
+
+                {/* Custom Fields Tab */}
+                <TabsContent
+                  value="custom"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
+                  {loadingCustom ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="text-muted-foreground size-5 animate-spin" />
+                    </div>
+                  ) : customFields.length === 0 ? (
+                    <p className="text-muted-foreground py-8 text-center text-sm">
+                      {t('noCustomFields')}
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {customFields.map((field) => (
+                        <div key={field.id} className="space-y-1.5">
+                          <Label className="text-muted-foreground text-xs capitalize">
+                            {field.field_name}
+                          </Label>
+                          <Input
+                            value={customValues[field.id] ?? ''}
+                            onChange={(e) =>
+                              setCustomValues((prev) => ({
+                                ...prev,
+                                [field.id]: e.target.value,
+                              }))
+                            }
+                            placeholder={t('enterCustomField', {
+                              name: field.field_name,
+                            })}
+                            className="bg-muted border-border text-foreground placeholder:text-muted-foreground h-8 text-sm"
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        onClick={saveCustomFields}
+                        disabled={savingCustom}
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
+                        size="sm"
+                      >
+                        {savingCustom ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Save className="size-3.5" />
+                        )}
+                        {t('saveCustomFieldsBtn')}
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Deals Tab */}
+                <TabsContent
+                  value="deals"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
+                  {loadingDeals ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="text-primary size-5 animate-spin" />
+                    </div>
+                  ) : deals.length === 0 ? (
+                    <p className="text-muted-foreground text-xs">
+                      {t('dealsTab.noDeals')}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {deals.map((deal) => (
+                        <div
+                          key={deal.id}
+                          className="border-border bg-muted/50 rounded-lg border p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-foreground text-sm font-medium">
+                              {deal.title}
+                            </p>
+                            {deal.stage && (
+                              <span
+                                className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                                style={{
+                                  backgroundColor: `${deal.stage.color}20`,
+                                  color: deal.stage.color,
+                                }}
+                              >
+                                {deal.stage.name}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground mt-1.5 flex items-center justify-between text-xs">
+                            <span className="flex items-center gap-1">
+                              <DollarSign className="size-3" />
+                              {formatCurrency(
+                                deal.value ?? 0,
+                                deal.currency || defaultCurrency
+                              )}
+                            </span>
+                            {deal.status && deal.status !== 'open' && (
+                              <span
+                                className={
+                                  deal.status === 'won'
+                                    ? 'text-primary'
+                                    : 'text-red-400'
+                                }
+                              >
+                                {deal.status}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Tasks Tab */}
+                <TabsContent
+                  value="tasks"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
+                  {loadingTasks ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="text-primary size-5 animate-spin" />
+                    </div>
+                  ) : tasks.length === 0 ? (
+                    <p className="text-muted-foreground text-xs">
+                      No tasks found.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {tasks.map((task) => (
+                        <div
+                          key={task.id}
+                          className="border-border bg-muted/50 rounded-lg border p-3"
+                        >
+                          <p className="text-foreground text-sm font-medium">
+                            {task.title}
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {task.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Conversations Tab */}
+                <TabsContent
+                  value="conversations"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
+                  {loadingConversations ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="text-primary size-5 animate-spin" />
+                    </div>
+                  ) : conversations.length === 0 ? (
+                    <p className="text-muted-foreground text-xs">
+                      No conversations found.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {conversations.map((conv) => (
+                        <div
+                          key={conv.id}
+                          className="border-border bg-muted/50 rounded-lg border p-3"
+                        >
+                          <p className="text-foreground text-sm font-medium">
+                            Conversation #{conv.id.substring(0, 8)}
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {new Date(
+                              conv.updated_at || conv.created_at
+                            ).toLocaleString()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Calls Tab */}
+                <TabsContent
+                  value="calls"
+                  className="flex-1 overflow-y-auto px-4 py-3"
+                >
+                  {loadingCalls ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="text-primary size-5 animate-spin" />
+                    </div>
+                  ) : calls.length === 0 ? (
+                    <p className="text-muted-foreground text-xs">
+                      No calls found.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {calls.map((call) => (
+                        <div
+                          key={call.id}
+                          className="border-border bg-muted/50 rounded-lg border p-3"
+                        >
+                          <p className="text-foreground text-sm font-medium capitalize">
+                            {call.direction} Call
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {call.status} -{' '}
+                            {new Date(call.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+      <TemplatePicker
+        open={templatePickerOpen}
+        onOpenChange={setTemplatePickerOpen}
+        onSelect={handleSendTemplate}
+      />
     </>
   );
 }
