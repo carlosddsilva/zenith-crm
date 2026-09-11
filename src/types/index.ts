@@ -426,27 +426,35 @@ export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'repli
 
 export interface Broadcast {
   id: string;
-  user_id: string;
+  accountId: string;
+  createdByUserId: string;
   name: string;
-  template_name: string;
-  template_language: string;
-  template_variables?: Record<string, unknown>;
-  audience_filter?: Record<string, unknown>;
-  scheduled_at?: string;
+  messagingChannelId: string | null;
+  content: {
+    templateName: string;
+    templateLanguage: string;
+    variables?: Record<string, any>;
+    headerMediaUrl?: string;
+  } | null;
+  audience: {
+    type?: string;
+    tags?: string[];
+    manualContacts?: string[];
+    excludeTagIds?: string[];
+  } | null;
+  scheduledAt?: string | null;
   status: BroadcastStatus;
-  total_recipients: number;
-  sent_count: number;
-  delivered_count: number;
-  read_count: number;
-  replied_count: number;
-  failed_count: number;
-  /**
-   * Set while a server-side delivery pass is fanning out, NULL when
-   * idle. Claimed with a conditional UPDATE so two resumes can't both
-   * send. Added in migration 038.
-   */
-  delivery_locked_at?: string | null;
-  created_at: string;
+  startedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _count?: {
+    recipients: number;
+    sent: number;
+    failed: number;
+    delivered?: number;
+    read?: number;
+    replied?: number;
+  };
 }
 
 export interface BroadcastRecipient {

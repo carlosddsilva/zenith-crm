@@ -166,25 +166,16 @@ export default function BroadcastDetailPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const supabase = createClient();
-
-      const { data: bc, error: bcError } = await supabase
-        .from('broadcasts')
-        .select('*')
-        .eq('id', broadcastId)
-        .single();
-
-      if (bcError) throw bcError;
+      const bcRes = await fetch(`/api/zenith/broadcasts/${broadcastId}`);
+      if (!bcRes.ok) throw new Error(t('notFound'));
+      const bc = await bcRes.json();
       setBroadcast(bc);
 
-      const { data: recs, error: recsError } = await supabase
-        .from('broadcast_recipients')
-        .select('*, contact:contacts(*)')
-        .eq('broadcast_id', broadcastId)
-        .order('created_at', { ascending: false });
-
-      if (recsError) throw recsError;
-      setRecipients(recs ?? []);
+      const recsRes = await fetch(`/api/zenith/broadcasts/${broadcastId}/recipients`);
+      if (recsRes.ok) {
+        const recs = await recsRes.json();
+        setRecipients(recs ?? []);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notFound'));
     } finally {
@@ -280,22 +271,16 @@ export default function BroadcastDetailPage() {
 
   async function handleDelete() {
     setDeleting(true);
-    const supabase = createClient();
-    // broadcast_recipients cascades on broadcasts.id (migration 001), so a
-    // single delete is sufficient — the aggregate trigger in migration 003
-    // is defined on broadcast_recipients but fires only on its own row
-    // changes, not on a cascaded drop of the parent row.
-    const { error: delErr } = await supabase
-      .from('broadcasts')
-      .delete()
-      .eq('id', broadcastId);
-    setDeleting(false);
-    if (delErr) {
-      toast.error(t('toastFailedDelete', { error: delErr.message }));
-      return;
+    try {
+      const res = await fetch(`/api/zenith/broadcasts/${broadcastId}`, { method: 'DELETE' });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
+      toast.success(t('toastDeleted'));
+      router.push('/broadcasts');
+    } catch (err: any) {
+      toast.error(t('toastFailedDelete', { error: err.message }));
+      setDeleting(false);
     }
-    toast.success(t('toastDeleted'));
-    router.push('/broadcasts');
   }
 
   if (loading) {
@@ -327,10 +312,10 @@ export default function BroadcastDetailPage() {
   const isStalled = broadcast.status === 'sending' && pendingCount > 0;
 
   const funnelSteps: FunnelStep[] = [
-    { label: t('stats.sent'), value: broadcast.sent_count, color: 'bg-primary' },
-    { label: t('stats.delivered'), value: broadcast.delivered_count, color: 'bg-teal-500' },
-    { label: t('stats.read'), value: broadcast.read_count, color: 'bg-blue-500' },
-    { label: t('stats.replied'), value: broadcast.replied_count, color: 'bg-indigo-500' },
+    { label: t('stats.sent'), value: broadcast._count?.sent || 0, color: 'bg-primary' },
+    { label: t('stats.delivered'), value: broadcast._count?.delivered || 0, color: 'bg-teal-500' },
+    { label: t('stats.read'), value: broadcast._count?.read || 0, color: 'bg-blue-500' },
+    { label: t('stats.replied'), value: broadcast._count?.replied || 0, color: 'bg-indigo-500' },
   ];
 
   return (
@@ -356,10 +341,10 @@ export default function BroadcastDetailPage() {
               </span>
             </div>
             <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
-              <span>{t('template', { name: broadcast.template_name })}</span>
+              <span>{t('template', { name: broadcast.content?.templateName || '-' })}</span>
               <span>-</span>
               <span>
-                {t('createdAt', { date: new Date(broadcast.created_at).toLocaleDateString() })}
+                {t('createdAt', { date: new Date(broadcast.createdAt).toLocaleDateString() })}
               </span>
             </div>
           </div>
@@ -462,43 +447,43 @@ export default function BroadcastDetailPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard
           label={t('stats.totalRecipients')}
-          value={broadcast.total_recipients}
-          total={broadcast.total_recipients}
+          value={broadcast._count?.recipients || 0}
+          total={broadcast._count?.recipients || 0}
           icon={<Users className="h-4 w-4" />}
           color="bg-muted text-muted-foreground"
         />
         <StatCard
           label={t('stats.sent')}
-          value={broadcast.sent_count}
-          total={broadcast.total_recipients}
+          value={broadcast._count?.sent || 0}
+          total={broadcast._count?.recipients || 0}
           icon={<Send className="h-4 w-4" />}
           color="bg-primary/10 text-primary"
         />
         <StatCard
           label={t('stats.delivered')}
-          value={broadcast.delivered_count}
-          total={broadcast.total_recipients}
+          value={broadcast._count?.delivered || 0}
+          total={broadcast._count?.recipients || 0}
           icon={<CheckCheck className="h-4 w-4" />}
           color="bg-teal-500/10 text-teal-400"
         />
         <StatCard
           label={t('stats.read')}
-          value={broadcast.read_count}
-          total={broadcast.total_recipients}
+          value={broadcast._count?.read || 0}
+          total={broadcast._count?.recipients || 0}
           icon={<Eye className="h-4 w-4" />}
           color="bg-blue-500/10 text-blue-400"
         />
         <StatCard
           label={t('stats.replied')}
-          value={broadcast.replied_count}
-          total={broadcast.total_recipients}
+          value={broadcast._count?.replied || 0}
+          total={broadcast._count?.recipients || 0}
           icon={<MessageCircle className="h-4 w-4" />}
           color="bg-indigo-500/10 text-indigo-400"
         />
         <StatCard
           label={t('stats.failed')}
-          value={broadcast.failed_count}
-          total={broadcast.total_recipients}
+          value={broadcast._count?.failed || 0}
+          total={broadcast._count?.recipients || 0}
           icon={<AlertCircle className="h-4 w-4" />}
           color="bg-red-500/10 text-red-400"
         />

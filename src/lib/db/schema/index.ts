@@ -12,3 +12,4 @@ export * from "./pipeline";
 export * from "./activities";
 
 export * from './companies';
+export * from './broadcasts';

@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { Broadcast } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -62,7 +61,7 @@ export default function BroadcastsPage() {
   const t = useTranslations('Broadcasts.page');
   const tStatus = useTranslations('Broadcasts.status');
   const canCreate = useCan('send-messages');
-  const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,13 +70,9 @@ export default function BroadcastsPage() {
 
   async function fetchBroadcasts() {
     try {
-      const supabase = createClient();
-      const { data, error: fetchError } = await supabase
-        .from('broadcasts')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (fetchError) throw fetchError;
+      const res = await fetch('/api/zenith/broadcasts');
+      if (!res.ok) throw new Error(t('errorLoad'));
+      const data = await res.json();
       setBroadcasts(data ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errorLoad'));
@@ -91,7 +86,7 @@ export default function BroadcastsPage() {
   }, []);
 
   const anySending = useMemo(
-    () => broadcasts.some((b) => b.status === 'sending'),
+    () => broadcasts.some((b) => b.status === 'running' || b.status === 'sending'),
     [broadcasts],
   );
 
@@ -106,9 +101,6 @@ export default function BroadcastsPage() {
       pollTimer.current = null;
     }
 
-    // Pause polling while the tab is hidden — keeps Supabase cold when
-    // the user is away, and ensures a fresh fetch the moment they
-    // refocus so they don't see stale data on return.
     function handleVisibilityChange() {
       if (!anySending) return;
       if (document.visibilityState === 'hidden') {
@@ -152,8 +144,6 @@ export default function BroadcastsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top indeterminate progress bar: only visible while a broadcast
-          is mid-send. Pure CSS animation so no extra deps. */}
       {anySending && (
         <div
           role="progressbar"
@@ -244,22 +234,22 @@ export default function BroadcastsPage() {
                       {broadcast.name}
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">
-                      {broadcast.template_name}
+                      {broadcast.content?.templateName || '-'}
                     </TableCell>
                     <TableCell className="hidden text-right text-muted-foreground tabular-nums sm:table-cell">
-                      {broadcast.total_recipients}
+                      {broadcast._count?.recipients || 0}
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
                       <RateCell
-                        value={broadcast.delivered_count}
-                        total={broadcast.total_recipients}
+                        value={broadcast._count?.sent || 0}
+                        total={broadcast._count?.recipients || 0}
                         color="bg-primary"
                       />
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
                       <RateCell
-                        value={broadcast.read_count}
-                        total={broadcast.total_recipients}
+                        value={broadcast._count?.read || 0}
+                        total={broadcast._count?.recipients || 0}
                         color="bg-blue-500"
                       />
                     </TableCell>
@@ -277,7 +267,7 @@ export default function BroadcastsPage() {
                       </span>
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground sm:table-cell">
-                      {new Date(broadcast.created_at).toLocaleDateString()}
+                      {new Date(broadcast.createdAt).toLocaleDateString()}
                     </TableCell>
                   </TableRow>
                 );
