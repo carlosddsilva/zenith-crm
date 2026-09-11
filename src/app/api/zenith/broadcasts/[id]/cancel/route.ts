@@ -6,14 +6,15 @@ import { requireZenithRole } from "@/lib/auth/zenith-account";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const ctx = await requireZenithRole("admin");
 
     const [b] = await db
       .select()
       .from(broadcasts)
-      .where(and(eq(broadcasts.id, params.id), eq(broadcasts.accountId, ctx.accountId)));
+      .where(and(eq(broadcasts.id, id), eq(broadcasts.accountId, ctx.accountId)));
 
     if (!b) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     if (b.status === 'completed' || b.status === 'cancelled') {

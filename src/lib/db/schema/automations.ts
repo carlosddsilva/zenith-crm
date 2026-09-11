@@ -62,3 +62,18 @@ export const automationActionRuns = pgTable('automation_action_runs', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
   failedAt: timestamp('failed_at', { withTimezone: true }),
 });
+
+export const automationEventsOutbox = pgTable('automation_events_outbox', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accounts.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').notNull().unique(), // The stable trigger event ID
+  eventType: text('event_type').notNull(),
+  payload: jsonb('payload').notNull(),
+  depth: integer('depth').notNull().default(0),
+  status: text('status', { enum: ['pending', 'processed', 'failed'] }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).default(sql`now()`).notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+});

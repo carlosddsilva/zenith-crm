@@ -141,6 +141,13 @@
       "when": 1789148077988,
       "tag": "0019_yummy_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789152773879,
+      "tag": "0020_easy_squadron_sinister",
+      "breakpoints": true
     }
   ]
 }

@@ -6,24 +6,25 @@ import { requireZenithRole } from "@/lib/auth/zenith-account";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const ctx = await requireZenithRole("agent");
     
     const [b] = await db
       .select()
       .from(broadcasts)
-      .where(and(eq(broadcasts.id, params.id), eq(broadcasts.accountId, ctx.accountId)));
+      .where(and(eq(broadcasts.id, id), eq(broadcasts.accountId, ctx.accountId)));
 
     if (!b) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    const [{ value: total }] = await db.select({ value: count() }).from(broadcastRecipients).where(eq(broadcastRecipients.broadcastId, params.id));
-    const [{ value: sent }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, params.id), eq(broadcastRecipients.status, 'sent')));
-    const [{ value: failed }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, params.id), eq(broadcastRecipients.status, 'failed')));
-    const [{ value: delivered }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, params.id), eq(broadcastRecipients.status, 'delivered')));
-    const [{ value: read }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, params.id), eq(broadcastRecipients.status, 'read')));
+    const [{ value: total }] = await db.select({ value: count() }).from(broadcastRecipients).where(eq(broadcastRecipients.broadcastId, id));
+    const [{ value: sent }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, id), eq(broadcastRecipients.status, 'sent')));
+    const [{ value: failed }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, id), eq(broadcastRecipients.status, 'failed')));
+    const [{ value: delivered }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, id), eq(broadcastRecipients.status, 'delivered')));
+    const [{ value: read }] = await db.select({ value: count() }).from(broadcastRecipients).where(and(eq(broadcastRecipients.broadcastId, id), eq(broadcastRecipients.status, 'read')));
     
     return NextResponse.json({
       ...b,
@@ -41,8 +42,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const ctx = await requireZenithRole("admin");
     const body = await request.json();
 
@@ -50,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const [existing] = await db
       .select()
       .from(broadcasts)
-      .where(and(eq(broadcasts.id, params.id), eq(broadcasts.accountId, ctx.accountId)));
+      .where(and(eq(broadcasts.id, id), eq(broadcasts.accountId, ctx.accountId)));
 
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -59,16 +61,19 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Can only update draft broadcasts' }, { status: 400 });
     }
 
+    const { name, content, audience, scheduledAt, messagingChannelId } = body;
+
     const [updated] = await db
       .update(broadcasts)
       .set({
-        name: body.name !== undefined ? body.name : existing.name,
-        messagingChannelId: body.messagingChannelId !== undefined ? body.messagingChannelId : existing.messagingChannelId,
-        content: body.content !== undefined ? body.content : existing.content,
-        audience: body.audience !== undefined ? body.audience : existing.audience,
+        name: name !== undefined ? name : existing.name,
+        messagingChannelId: messagingChannelId !== undefined ? messagingChannelId : existing.messagingChannelId,
+        content: content !== undefined ? content : existing.content,
+        audience: audience !== undefined ? audience : existing.audience,
+        scheduledAt: scheduledAt !== undefined ? (scheduledAt ? new Date(scheduledAt) : null) : existing.scheduledAt,
         updatedAt: new Date()
       })
-      .where(eq(broadcasts.id, params.id))
+      .where(and(eq(broadcasts.id, id), eq(broadcasts.accountId, ctx.accountId)))
       .returning();
 
     return NextResponse.json(updated);
@@ -78,14 +83,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const ctx = await requireZenithRole("admin");
 
     const [existing] = await db
       .select()
       .from(broadcasts)
-      .where(and(eq(broadcasts.id, params.id), eq(broadcasts.accountId, ctx.accountId)));
+      .where(and(eq(broadcasts.id, id), eq(broadcasts.accountId, ctx.accountId)));
 
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -96,7 +102,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'Cannot delete running broadcast' }, { status: 400 });
     }
 
-    await db.delete(broadcasts).where(eq(broadcasts.id, params.id));
+    await db.delete(broadcasts).where(eq(broadcasts.id, id));
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

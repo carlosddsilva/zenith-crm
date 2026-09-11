@@ -6,15 +6,19 @@ import { requireZenithRole } from "@/lib/auth/zenith-account";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const { id } = await params;
     const ctx = await requireZenithRole("agent");
     
     // First ensure broadcast belongs to this account
     const [b] = await db
       .select({ id: broadcasts.id })
       .from(broadcasts)
-      .where(and(eq(broadcasts.id, params.id), eq(broadcasts.accountId, ctx.accountId)));
+      .where(and(eq(broadcasts.id, id), eq(broadcasts.accountId, ctx.accountId)));
 
     if (!b) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -39,7 +43,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       })
       .from(broadcastRecipients)
       .leftJoin(contacts, eq(broadcastRecipients.contactId, contacts.id))
-      .where(eq(broadcastRecipients.broadcastId, params.id))
+      .where(eq(broadcastRecipients.broadcastId, id))
       .orderBy(desc(broadcastRecipients.createdAt));
 
     return NextResponse.json(items);

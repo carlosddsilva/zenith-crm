@@ -5,10 +5,14 @@ import { eq, and } from 'drizzle-orm';
 import { evaluateConditions, executeAction } from '@/lib/automations/engine';
 import { AutomationCondition, AutomationAction, AutomationTriggerType } from '@/types';
 
+import crypto from 'crypto';
+
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get('x-zenith-worker-token');
-    if (authHeader !== (process.env.ZENITH_WORKER_SECRET || 'dev-secret')) {
+    const workerSecret = process.env.ZENITH_WORKER_SECRET || 'dev-secret';
+    
+    if (!authHeader || authHeader.length !== workerSecret.length || !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(workerSecret))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

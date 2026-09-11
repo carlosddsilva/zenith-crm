@@ -38,23 +38,26 @@ export async function publishEvent(event: DispatchEventPayload) {
   // 1. Log to an event history table (optional)
   // 2. Dispatch to the durable Redis queue
   try {
-    await redis.rpush('zenith:automation:events', JSON.stringify(normalizedEvent));
+    await redis.lpush('zenith:automation:events', JSON.stringify({ ...normalizedEvent, attempts: 0 }));
   } catch (err) {
-    console.error('[EventBus] Error pushing to Redis queue:', err);
+    console.error('[EventBus] Error pushing to Redis queue, falling back to outbox:', err);
     
-    // Fallback to direct HTTP dispatch if Redis is down
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    // Fallback to database outbox if Redis is down
+    const { db } = await import('@/lib/db/client');
+    const { automationEventsOutbox } = await import('@/lib/db/schema');
+    
     try {
-      fetch(`${appUrl}/api/zenith/workers/automation-dispatcher`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-zenith-worker-token': process.env.ZENITH_WORKER_SECRET || 'dev-secret',
-        },
-        body: JSON.stringify(normalizedEvent),
-      }).catch(e => console.error('[EventBus] HTTP fallback dispatch failed:', e));
-    } catch (e) {
-      console.error('[EventBus] Error initiating fallback fetch:', e);
+      await db.insert(automationEventsOutbox).values({
+        eventId: normalizedEvent.eventId,
+        accountId: normalizedEvent.accountId,
+        eventType: normalizedEvent.triggerType,
+        payload: normalizedEvent,
+        depth: normalizedEvent.depth,
+        status: 'pending',
+      });
+      console.log(`[EventBus] Event ${normalizedEvent.eventId} saved to outbox successfully.`);
+    } catch (dbErr) {
+      console.error('[EventBus] CRITICAL: Failed to save event to outbox:', dbErr);
     }
   }
 }
