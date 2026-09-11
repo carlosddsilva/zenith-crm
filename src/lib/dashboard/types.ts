@@ -2,23 +2,45 @@
 // here so each component stays thin and the page-level loader wires
 // them up without type gymnastics.
 
-export interface MetricDelta {
-  current: number
-  previous: number
-}
-
-export interface MetricsBundle {
-  activeConversations: MetricDelta
-  newContactsToday: MetricDelta
-  openDealsValue: number
-  openDealsCount: number
-  messagesSentToday: MetricDelta
-}
-
-export interface ConversationsSeriesPoint {
-  day: string // YYYY-MM-DD local
-  incoming: number
-  outgoing: number
+export interface DashboardMetrics {
+  period: {
+    from: string
+    to: string
+  }
+  contacts: {
+    total: number
+    newInPeriod: number
+  }
+  companies: {
+    total: number
+    newInPeriod: number
+  }
+  deals: {
+    open: number
+    won: number
+    lost: number
+    openValue: number
+    wonValue: number
+    lostValue: number
+  }
+  funnel: PipelineDonutData
+  tasks: {
+    open: number
+    overdue: number
+    dueToday: number
+    completedInPeriod: number
+  }
+  inbox: {
+    open: number
+    pending: number
+    unread: number
+  }
+  calls: {
+    totalInPeriod: number
+    answered: number
+    missed: number
+  }
+  activities: ActivityItem[]
 }
 
 export interface PipelineStageSlice {
@@ -34,26 +56,16 @@ export interface PipelineDonutData {
   totalValue: number
 }
 
-export interface ResponseTimeBucket {
-  /** 0 = Mon … 6 = Sun (Monday-first). */
-  dow: number
-  /** Average first-response time in minutes. Null means no samples. */
-  avgMinutes: number | null
-  samples: number
-}
-
-export interface ResponseTimeSummary {
-  buckets: ResponseTimeBucket[]
-  thisWeekAvg: number | null
-  lastWeekAvg: number | null
-}
-
 export type ActivityKind =
   | 'message'
   | 'deal'
   | 'broadcast'
   | 'automation'
   | 'contact'
+  | 'call'
+  | 'task'
+  | 'note'
+  | 'company'
 
 export interface ActivityItem {
   id: string

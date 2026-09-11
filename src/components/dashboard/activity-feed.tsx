@@ -9,6 +9,10 @@ import {
   Radio,
   Zap,
   Inbox,
+  Building,
+  Phone,
+  CheckSquare,
+  StickyNote
 } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { ActivityItem, ActivityKind } from '@/lib/dashboard/types'
@@ -36,6 +40,10 @@ const KIND_THEME: Record<ActivityKind, KindTheme> = {
   deal: { icon: Briefcase, badge: 'bg-primary/10 text-primary' },
   broadcast: { icon: Radio, badge: 'bg-amber-500/10 text-amber-400' },
   automation: { icon: Zap, badge: 'bg-rose-500/10 text-rose-400' },
+  company: { icon: Building, badge: 'bg-indigo-500/10 text-indigo-400' },
+  call: { icon: Phone, badge: 'bg-emerald-500/10 text-emerald-400' },
+  task: { icon: CheckSquare, badge: 'bg-orange-500/10 text-orange-400' },
+  note: { icon: StickyNote, badge: 'bg-yellow-500/10 text-yellow-400' },
 }
 
 import { useTranslations } from 'next-intl'
