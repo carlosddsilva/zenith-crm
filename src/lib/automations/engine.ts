@@ -41,6 +41,9 @@ export function evaluateConditions(
 }
 
 function getNestedValue(obj: any, path: string): any {
+  if (path.includes('__proto__') || path.includes('constructor') || path.includes('prototype')) {
+    return undefined; // Block prototype pollution/unsafe access
+  }
   return path.split('.').reduce((acc, part) => acc && acc[part], obj);
 }
 
@@ -213,3 +216,4 @@ async function executeSendMessage(params: Record<string, any>, context: ActionEx
     return { success: false, error: err.message };
   }
 }
+

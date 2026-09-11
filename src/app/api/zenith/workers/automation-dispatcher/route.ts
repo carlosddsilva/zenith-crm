@@ -19,6 +19,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
+    if (depth && depth > 3) {
+      console.warn(`[AutomationDispatcher] Max depth (3) exceeded for event ${eventId}`);
+      return NextResponse.json({ error: 'Max depth exceeded' }, { status: 400 });
+    }
+
     // 1. Fetch matching active automations
     const matchingAutomations = await db.select()
       .from(automations)

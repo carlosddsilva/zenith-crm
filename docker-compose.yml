@@ -65,6 +65,20 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  automation-events-worker:
+    image: zenith-crm-app:local
+    command: ['node', 'scripts/automation-worker.mjs']
+    env_file:
+      - .env.local
+    environment:
+      VOICE_WORKER_APP_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
   postgres:
     # pgvector image keeps the project compatible with the existing AI
     # knowledge migrations while remaining standard PostgreSQL 16.

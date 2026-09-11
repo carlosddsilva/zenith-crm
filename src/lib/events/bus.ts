@@ -1,5 +1,6 @@
 import { AutomationTriggerType } from '@/types';
 import { randomUUID } from 'crypto';
+import { redis } from '@/lib/redis';
 
 export interface DispatchEventPayload {
   accountId: string;
@@ -34,28 +35,26 @@ export async function publishEvent(event: DispatchEventPayload) {
     depth,
   };
 
-  // 1. You could log this to an 'event_logs' table here if needed for debugging
-  // 2. Dispatch to the worker
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  
-  // We use fetch without awaiting its final completion to let it run in the background (fire and forget)
-  // or we can await it if we want to guarantee delivery to the queue/worker synchronously.
-  // In a robust system, we would enqueue this into Redis or similar.
-  // For now, we will fire the webhook to our own API route.
-  
+  // 1. Log to an event history table (optional)
+  // 2. Dispatch to the durable Redis queue
   try {
-    fetch(`${appUrl}/api/zenith/workers/automation-dispatcher`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // In a real app we might pass a secret header here to authenticate internal worker calls
-        'x-zenith-worker-token': process.env.ZENITH_WORKER_SECRET || 'dev-secret',
-      },
-      body: JSON.stringify(normalizedEvent),
-    }).catch(err => {
-      console.error('[EventBus] Failed to dispatch event to worker:', err);
-    });
+    await redis.rpush('zenith:automation:events', JSON.stringify(normalizedEvent));
   } catch (err) {
-    console.error('[EventBus] Error initiating fetch to worker:', err);
+    console.error('[EventBus] Error pushing to Redis queue:', err);
+    
+    // Fallback to direct HTTP dispatch if Redis is down
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    try {
+      fetch(`${appUrl}/api/zenith/workers/automation-dispatcher`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-zenith-worker-token': process.env.ZENITH_WORKER_SECRET || 'dev-secret',
+        },
+        body: JSON.stringify(normalizedEvent),
+      }).catch(e => console.error('[EventBus] HTTP fallback dispatch failed:', e));
+    } catch (e) {
+      console.error('[EventBus] Error initiating fallback fetch:', e);
+    }
   }
 }
