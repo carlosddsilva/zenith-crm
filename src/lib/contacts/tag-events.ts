@@ -1,9 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import {
-  runAutomationsForTrigger,
-  type AutomationContext,
-} from '@/lib/automations/engine';
+import { publishEvent } from '@/lib/events/bus';
 import { addContactTagIfAbsent } from './tag-write';
 import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from './tag-chain';
 
@@ -14,7 +11,7 @@ interface AddContactTagAndDispatchInput {
   accountId: string;
   contactId: string;
   tagId: string;
-  context?: AutomationContext;
+  context?: Record<string, any>;
 }
 
 export interface AddContactTagResult {
@@ -49,18 +46,13 @@ export async function addContactTagAndDispatch(
     return { added: true, dispatched: false, reason: 'max_depth' };
   }
 
-  await runAutomationsForTrigger({
+  await publishEvent({
     accountId: input.accountId,
-    triggerType: 'tag_added',
-    contactId: input.contactId,
-    context: {
-      ...input.context,
-      tag_id: input.tagId,
-      vars: {
-        ...(input.context?.vars ?? {}),
-        _tag_chain_depth: depth + 1,
-      },
-    },
+    triggerType: 'tag_added' as any, // fallback if added to Zenith later
+    entityType: 'tag',
+    entityId: input.tagId,
+    payload: { contactId: input.contactId, tagId: input.tagId },
+    depth: depth + 1,
   });
 
   return { added: true, dispatched: true };

@@ -6,11 +6,9 @@ import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import {
-  AutomationBuilder,
-  fromServerSteps,
-  type BuilderInitial,
-  type ServerStepNode,
-} from "@/components/automations/automation-builder"
+  AutomationBuilderZenith,
+  type BuilderInitialZenith,
+} from "@/components/automations/automation-builder-zenith"
 import type { AutomationTriggerType } from "@/types"
 
 export default function EditAutomationPage({
@@ -21,13 +19,13 @@ export default function EditAutomationPage({
   const { id } = use(params)
   const router = useRouter()
   const t = useTranslations("Automations.edit")
-  const [initial, setInitial] = useState<BuilderInitial | null>(null)
+  const [initial, setInitial] = useState<BuilderInitialZenith | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const res = await fetch(`/api/automations/${id}`)
+      const res = await fetch(`/api/zenith/automations/${id}`)
       if (!res.ok) {
         if (!cancelled) setError(t("loadError", { status: res.status }))
         return
@@ -35,13 +33,14 @@ export default function EditAutomationPage({
       const body = await res.json()
       if (cancelled) return
       setInitial({
-        id: body.automation.id,
-        name: body.automation.name ?? "",
-        description: body.automation.description ?? "",
-        trigger_type: body.automation.trigger_type as AutomationTriggerType,
-        trigger_config: body.automation.trigger_config ?? {},
-        is_active: !!body.automation.is_active,
-        steps: fromServerSteps((body.steps ?? []) as ServerStepNode[]),
+        id: body.id,
+        name: body.name ?? "",
+        description: body.description ?? "",
+        triggerType: body.triggerType as AutomationTriggerType,
+        triggerConfig: body.triggerConfig ?? {},
+        status: body.status ?? "draft",
+        conditions: body.conditions ?? [],
+        actions: body.actions ?? [],
       })
     }
     load()
@@ -72,5 +71,5 @@ export default function EditAutomationPage({
     )
   }
 
-  return <AutomationBuilder initial={initial} />
+  return <AutomationBuilderZenith initial={initial} />
 }

@@ -105,6 +105,22 @@ export async function PATCH(req: Request, { params }: any) {
       return updated;
     });
 
+    // Publish Automation Events
+    try {
+      const { publishEvent } = await import('@/lib/events/bus');
+      if (updatedTask.status === 'completed' && existingTask.status !== 'completed') {
+        publishEvent({
+          accountId,
+          triggerType: 'task.completed',
+          entityType: 'task',
+          entityId: updatedTask.id,
+          payload: { task: updatedTask },
+        });
+      }
+    } catch (evtErr) {
+      console.error('[EventBus] Failed to publish task events:', evtErr);
+    }
+
     return NextResponse.json(updatedTask);
   } catch (error: any) {
     if (error.message === 'Unauthorized') {

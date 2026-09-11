@@ -1,0 +1,1425 @@
+"use client";
+
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  Loader2,
+  Mic,
+  MicOff,
+  PhoneCall,
+  PhoneOff,
+} from "lucide-react";
+
+import {
+  toast,
+} from "sonner";
+
+import {
+  Button,
+} from "@/components/ui/button";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+import {
+  Input,
+} from "@/components/ui/input";
+
+import {
+  Label,
+} from "@/components/ui/label";
+
+import {
+  getVoiceClientId,
+} from "@/lib/voice/browser/client-id";
+
+import {
+  openWaCallsVoiceCall,
+  type OpenVoiceCall,
+} from "@/lib/voice/browser/wacalls-webrtc";
+
+type VoiceCallState =
+  | "new"
+  | "ringing"
+  | "connecting"
+  | "active"
+  | "ended"
+  | "failed"
+  | "rejected";
+
+interface VoiceCallItem {
+  id:
+    string;
+
+  provider:
+    string;
+
+  provider_call_id:
+    string | null;
+
+  direction:
+    "inbound" | "outbound";
+
+  state:
+    VoiceCallState;
+
+  to_phone:
+    string | null;
+
+  started_at?:
+    string | null;
+
+  answered_at?:
+    string | null;
+}
+
+interface CreateCallResponse {
+  item?:
+    VoiceCallItem;
+
+  error?:
+    string;
+}
+
+interface CallsResponse {
+  items?:
+    VoiceCallItem[];
+}
+
+const TERMINAL_STATES =
+  new Set<VoiceCallState>([
+    "ended",
+    "failed",
+    "rejected",
+  ]);
+
+const OUTBOUND_CALL_STORAGE_KEY =
+  "zenith.voice.outboundCallId";
+
+function formatCallElapsed(
+  totalSeconds:
+    number,
+) {
+  const seconds =
+    Math.max(
+      0,
+      Math.floor(
+        totalSeconds,
+      ),
+    );
+
+  const hours =
+    Math.floor(
+      seconds / 3600,
+    );
+
+  const minutes =
+    Math.floor(
+      (seconds % 3600) /
+        60,
+    );
+
+  const remainingSeconds =
+    seconds % 60;
+
+  const mm =
+    String(
+      minutes,
+    ).padStart(
+      2,
+      "0",
+    );
+
+  const ss =
+    String(
+      remainingSeconds,
+    ).padStart(
+      2,
+      "0",
+    );
+
+  if (hours > 0) {
+    const hh =
+      String(
+        hours,
+      ).padStart(
+        2,
+        "0",
+      );
+
+    return `${hh}:${mm}:${ss}`;
+  }
+
+  return `${mm}:${ss}`;
+}
+
+function getCallElapsedSeconds(
+  call:
+    VoiceCallItem,
+  now:
+    number,
+) {
+  const timestamp =
+    call.state === "active"
+      ? call.answered_at ??
+        call.started_at
+      : call.started_at;
+
+  if (!timestamp) {
+    return 0;
+  }
+
+  const startedAt =
+    new Date(
+      timestamp,
+    ).getTime();
+
+  if (
+    !Number.isFinite(
+      startedAt,
+    )
+  ) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.floor(
+      (now - startedAt) /
+        1000,
+    ),
+  );
+}
+function stateLabel(
+  state:
+    VoiceCallState,
+) {
+  switch (state) {
+    case "new":
+      return "Preparando...";
+
+    case "connecting":
+      return "Chamando...";
+
+    case "ringing":
+      return "Tocando...";
+
+    case "active":
+      return "Em chamada";
+
+    case "ended":
+      return "Encerrada";
+
+    case "failed":
+      return "Falhou";
+
+    case "rejected":
+      return "Rejeitada";
+  }
+}
+
+function formatPhone(
+  value:
+    string | null,
+) {
+  if (!value) {
+    return "Número não informado";
+  }
+
+  const raw =
+    value.trim();
+
+  if (raw.includes("@")) {
+    return raw;
+  }
+
+  const digits =
+    raw.replace(
+      /\D/g,
+      "",
+    );
+
+  if (
+    digits.length === 13 &&
+    digits.startsWith("55")
+  ) {
+    return `+55 ${digits.slice(
+      2,
+      4,
+    )} ${digits.slice(
+      4,
+      9,
+    )}-${digits.slice(9)}`;
+  }
+
+  if (
+    digits.length === 12 &&
+    digits.startsWith("55")
+  ) {
+    return `+55 ${digits.slice(
+      2,
+      4,
+    )} ${digits.slice(
+      4,
+      8,
+    )}-${digits.slice(8)}`;
+  }
+
+  return raw;
+}
+
+async function hangupProviderCall(
+  callId:
+    string,
+
+  clientId:
+    string,
+) {
+  const response =
+    await fetch(
+      `/api/zenith/calls/${encodeURIComponent(
+        callId,
+      )}/action`,
+      {
+        method:
+          "POST",
+
+        credentials:
+          "include",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body:
+          JSON.stringify({
+            action:
+              "hangup",
+
+            client_id:
+              clientId,
+          }),
+      },
+    );
+
+  const body =
+    (await response
+      .json()
+      .catch(
+        () => null,
+      )) as
+      | {
+          error?:
+            string;
+        }
+      | null;
+
+  if (!response.ok) {
+    throw new Error(
+      body?.error ??
+        `Falha ao encerrar chamada (${response.status}).`,
+    );
+  }
+}
+
+export function VoiceDialer() {
+  const [dialogOpen, setDialogOpen] =
+    useState(false);
+
+  const [phone, setPhone] =
+    useState("");
+
+  const [contactId, setContactId] =
+    useState<string | null>(
+      null,
+    );
+
+  const [starting, setStarting] =
+    useState(false);
+
+  const [activeCall, setActiveCall] =
+    useState<VoiceCallItem | null>(
+      null,
+    );
+
+  const [mediaReady, setMediaReady] =
+    useState(false);
+
+  const [muted, setMuted] =
+    useState(false);
+
+  const [hangingUp, setHangingUp] =
+    useState(false);
+
+  const [clockNow, setClockNow] =
+    useState(
+      () => Date.now(),
+    );
+
+  const connectionRef =
+    useRef<OpenVoiceCall | null>(
+      null,
+    );
+
+  const mediaCallIdRef =
+    useRef<string | null>(
+      null,
+    );
+  const audioRef =
+    useRef<HTMLAudioElement | null>(
+      null,
+    );
+
+  const ringbackContextRef =
+    useRef<AudioContext | null>(
+      null,
+    );
+
+  const ringbackIntervalRef =
+    useRef<number | null>(
+      null,
+    );
+
+  function stopRingback() {
+    if (
+      ringbackIntervalRef.current !==
+      null
+    ) {
+      window.clearInterval(
+        ringbackIntervalRef.current,
+      );
+
+      ringbackIntervalRef.current =
+        null;
+    }
+
+    const context =
+      ringbackContextRef.current;
+
+    ringbackContextRef.current =
+      null;
+
+    if (
+      context &&
+      context.state !== "closed"
+    ) {
+      void context
+        .close()
+        .catch(
+          () => undefined,
+        );
+    }
+  }
+
+  function playRingbackBurst(
+    context:
+      AudioContext,
+  ) {
+    if (
+      context.state === "closed"
+    ) {
+      return;
+    }
+
+    const now =
+      context.currentTime;
+
+    const oscillator =
+      context.createOscillator();
+
+    const gain =
+      context.createGain();
+
+    oscillator.type =
+      "sine";
+
+    oscillator.frequency
+      .setValueAtTime(
+        425,
+        now,
+      );
+
+    gain.gain
+      .setValueAtTime(
+        0.0001,
+        now,
+      );
+
+    gain.gain
+      .linearRampToValueAtTime(
+        0.08,
+        now + 0.03,
+      );
+
+    gain.gain
+      .setValueAtTime(
+        0.08,
+        now + 0.9,
+      );
+
+    gain.gain
+      .linearRampToValueAtTime(
+        0.0001,
+        now + 1,
+      );
+
+    oscillator.connect(
+      gain,
+    );
+
+    gain.connect(
+      context.destination,
+    );
+
+    oscillator.start(
+      now,
+    );
+
+    oscillator.stop(
+      now + 1.05,
+    );
+  }
+
+  async function startRingback() {
+    if (
+      ringbackContextRef.current
+    ) {
+      return;
+    }
+
+    const context =
+      new AudioContext();
+
+    ringbackContextRef.current =
+      context;
+
+    try {
+      await context.resume();
+    } catch {
+      /*
+       * Alguns browsers podem bloquear
+       * AudioContext fora de gesto direto.
+       */
+    }
+
+    if (
+      ringbackContextRef.current !==
+      context
+    ) {
+      return;
+    }
+
+    playRingbackBurst(
+      context,
+    );
+
+    ringbackIntervalRef.current =
+      window.setInterval(
+        () => {
+          const activeContext =
+            ringbackContextRef.current;
+
+          if (!activeContext) {
+            return;
+          }
+
+          playRingbackBurst(
+            activeContext,
+          );
+        },
+        5000,
+      );
+  }
+  function closeMedia() {
+    stopRingback();
+
+    connectionRef.current
+      ?.close();
+
+    connectionRef.current =
+      null;
+
+    mediaCallIdRef.current =
+      null;
+    setMediaReady(
+      false,
+    );
+
+    setMuted(
+      false,
+    );
+
+    if (
+      audioRef.current
+    ) {
+      audioRef.current.srcObject =
+        null;
+    }
+  }
+
+  useEffect(
+    () => {
+      return () => {
+        connectionRef.current
+          ?.close();
+
+        connectionRef.current =
+          null;
+      };
+    },
+    [],
+  );
+
+  useEffect(
+    () => {
+      function handleOpenDialer(
+        event:
+          Event,
+      ) {
+        if (activeCall) {
+          toast.error(
+            "Já existe uma chamada em andamento.",
+          );
+
+          return;
+        }
+
+        const customEvent =
+          event as CustomEvent<{
+            phone?:
+              string | null;
+
+            contactId?:
+              string | null;
+          }>;
+
+        setPhone(
+          customEvent.detail
+            ?.phone ??
+            "",
+        );
+
+        setContactId(
+          customEvent.detail
+            ?.contactId ??
+            null,
+        );
+
+        setDialogOpen(
+          true,
+        );
+      }
+
+      window.addEventListener(
+        "zenith:voice-dialer:open",
+        handleOpenDialer,
+      );
+
+      return () => {
+        window.removeEventListener(
+          "zenith:voice-dialer:open",
+          handleOpenDialer,
+        );
+      };
+    },
+    [
+      activeCall,
+    ],
+  );
+  /*
+   * O lifecycle authoritative continua
+   * vindo do backend via WaCalls SSE.
+   *
+   * Aqui apenas acompanhamos o registro
+   * da chamada criada por este browser.
+   */
+  useEffect(
+    () => {
+      const callId =
+        activeCall?.id;
+
+      if (!callId) {
+        return;
+      }
+
+      let cancelled =
+        false;
+
+      async function refreshCall() {
+        try {
+          const response =
+            await fetch(
+              "/api/zenith/calls",
+              {
+                credentials:
+                  "include",
+
+                cache:
+                  "no-store",
+              },
+            );
+
+          if (!response.ok) {
+            return;
+          }
+
+          const body =
+            (await response
+              .json()
+              .catch(
+                () => null,
+              )) as
+              | CallsResponse
+              | null;
+
+          const item =
+            body?.items?.find(
+              (candidate) =>
+                candidate.id ===
+                callId,
+            );
+
+          if (
+            !item ||
+            cancelled
+          ) {
+            return;
+          }
+
+          setActiveCall(
+            item,
+          );
+
+          if (
+            TERMINAL_STATES.has(
+              item.state,
+            )
+          ) {
+            closeMedia();
+
+            setActiveCall(
+              null,
+            );
+          }
+        } catch {
+          /*
+           * Uma falha temporária do poll
+           * não deve encerrar a mídia.
+           */
+        }
+      }
+
+      void refreshCall();
+
+      const timer =
+        window.setInterval(
+          () => {
+            void refreshCall();
+          },
+          1500,
+        );
+
+      return () => {
+        cancelled =
+          true;
+
+        window.clearInterval(
+          timer,
+        );
+      };
+    },
+    [
+      activeCall?.id,
+    ],
+  );
+
+  /*
+   * Persiste a chamada outbound criada
+   * neste browser para permitir recuperar
+   * o controle apos reload/F5.
+   */
+  useEffect(
+    () => {
+      const call =
+        activeCall;
+
+      if (!call) {
+        return;
+      }
+
+      if (
+        call.direction !== "outbound"
+      ) {
+        return;
+      }
+
+      if (
+        TERMINAL_STATES.has(
+          call.state,
+        )
+      ) {
+        const storedCallId =
+          window.localStorage.getItem(
+            OUTBOUND_CALL_STORAGE_KEY,
+          );
+
+        if (
+          storedCallId === call.id
+        ) {
+          window.localStorage
+            .removeItem(
+              OUTBOUND_CALL_STORAGE_KEY,
+            );
+        }
+
+        return;
+      }
+
+      window.localStorage.setItem(
+        OUTBOUND_CALL_STORAGE_KEY,
+        call.id,
+      );
+    },
+    [
+      activeCall?.id,
+      activeCall?.direction,
+      activeCall?.state,
+    ],
+  );
+
+  /*
+   * Recupera apenas a chamada outbound
+   * que este browser havia persistido.
+   *
+   * Nao selecionamos chamadas arbitrarias
+   * de outros operadores da conta.
+   */
+  useEffect(
+    () => {
+      const storedCallId =
+        window.localStorage.getItem(
+          OUTBOUND_CALL_STORAGE_KEY,
+        );
+
+      if (!storedCallId) {
+        return;
+      }
+
+      let cancelled =
+        false;
+
+      async function recoverOutboundCall() {
+        try {
+          const response =
+            await fetch(
+              "/api/zenith/calls",
+              {
+                credentials:
+                  "include",
+                cache:
+                  "no-store",
+              },
+            );
+
+          if (!response.ok) {
+            return;
+          }
+
+          const body =
+            (await response
+              .json()
+              .catch(
+                () => null,
+              )) as
+              | CallsResponse
+              | null;
+
+          if (cancelled) {
+            return;
+          }
+
+          const item =
+            body?.items?.find(
+              (candidate) =>
+                candidate.id ===
+                storedCallId,
+            );
+
+          if (
+            !item ||
+            item.direction !==
+              "outbound" ||
+            TERMINAL_STATES.has(
+              item.state,
+            )
+          ) {
+            window.localStorage
+              .removeItem(
+                OUTBOUND_CALL_STORAGE_KEY,
+              );
+
+            return;
+          }
+
+          setActiveCall(
+            (current) =>
+              current ?? item,
+          );
+        } catch {
+          /*
+           * Mantemos o ID para uma futura
+           * tentativa/reload se a falha
+           * tiver sido apenas de rede.
+           */
+        }
+      }
+
+      void recoverOutboundCall();
+
+      return () => {
+        cancelled =
+          true;
+      };
+    },
+    [],
+  );
+  useEffect(
+    () => {
+      const callId =
+        activeCall?.id;
+
+      const callState =
+        activeCall?.state;
+
+      if (
+        !callId ||
+        callState !== "active"
+      ) {
+        return;
+      }
+
+      if (
+        connectionRef.current ||
+        mediaCallIdRef.current === callId
+      ) {
+        return;
+      }
+
+      const mediaCallId =
+        callId;
+
+      mediaCallIdRef.current =
+        mediaCallId;
+
+      let cancelled =
+        false;
+
+      async function connectMedia() {
+        try {
+          const connection =
+            await openWaCallsVoiceCall(
+              mediaCallId,
+              getVoiceClientId(),
+              null,
+            );
+
+          if (cancelled) {
+            connection.close();
+            return;
+          }
+
+          connectionRef.current =
+            connection;
+
+          setMediaReady(
+            true,
+          );
+
+          if (
+            audioRef.current
+          ) {
+            audioRef.current.srcObject =
+              connection.remoteStream;
+
+            try {
+              await audioRef.current
+                .play();
+            } catch {
+              /*
+               * autoPlay pode assumir
+               * a reproducao.
+               */
+            }
+          }
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          console.error(
+            "[zenith-calls] outbound media failed",
+            error,
+          );
+
+          toast.error(
+            "Chamada atendida, mas nao foi possivel conectar o audio.",
+          );
+        }
+      }
+
+      void connectMedia();
+
+      return () => {
+        cancelled =
+          true;
+      };
+    },
+    [
+      activeCall?.id,
+      activeCall?.state,
+    ],
+  );
+  useEffect(
+    () => {
+      if (
+        activeCall?.state === "ringing"
+      ) {
+        void startRingback();
+
+        return;
+      }
+
+      stopRingback();
+    },
+    [
+      activeCall?.id,
+      activeCall?.state,
+    ],
+  );
+  useEffect(
+    () => {
+      if (!activeCall) {
+        return;
+      }
+
+      setClockNow(
+        Date.now(),
+      );
+
+      const timer =
+        window.setInterval(
+          () => {
+            setClockNow(
+              Date.now(),
+            );
+          },
+          1000,
+        );
+
+      return () => {
+        window.clearInterval(
+          timer,
+        );
+      };
+    },
+    [
+      activeCall?.id,
+      activeCall?.state,
+      activeCall?.started_at,
+      activeCall?.answered_at,
+    ],
+  );
+  async function startCall() {
+    if (starting) {
+      return;
+    }
+
+    if (activeCall) {
+      toast.error(
+        "Já existe uma chamada em andamento.",
+      );
+
+      return;
+    }
+
+    const normalizedPhone =
+      phone.replace(
+        /\D/g,
+        "",
+      );
+
+    if (
+      normalizedPhone.length <
+        10 ||
+      normalizedPhone.length >
+        15
+    ) {
+      toast.error(
+        "Informe DDD e telefone.",
+      );
+
+      return;
+    }
+
+    const clientId =
+      getVoiceClientId();
+
+    let createdCall:
+      VoiceCallItem | null =
+      null;
+
+    setStarting(
+      true,
+    );
+
+    try {
+      const response =
+        await fetch(
+          "/api/zenith/calls",
+          {
+            method:
+              "POST",
+
+            credentials:
+              "include",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body:
+              JSON.stringify({
+                to:
+                  normalizedPhone,
+
+                client_id:
+                  clientId,
+
+                contact_id:
+                  contactId,
+              }),
+          },
+        );
+
+      const body =
+        (await response
+          .json()
+          .catch(
+            () => null,
+          )) as
+          | CreateCallResponse
+          | null;
+
+      if (
+        !response.ok ||
+        !body?.item
+      ) {
+        throw new Error(
+          body?.error ??
+            `Falha ao iniciar chamada (${response.status}).`,
+        );
+      }
+
+      createdCall =
+        body.item;
+
+      setActiveCall(
+        createdCall,
+      );
+
+      setDialogOpen(
+        false,
+      );
+
+      setPhone(
+        "",
+      );
+
+      setContactId(
+        null,
+      );
+
+      toast.success(
+        "Chamada iniciada.",
+      );    } catch (error) {
+      if (!createdCall) {
+        closeMedia();
+
+        setActiveCall(
+          null,
+        );
+      }
+
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Falha ao iniciar chamada.",
+      );
+    } finally {
+      setStarting(
+        false,
+      );
+    }
+  }
+
+  async function hangupCall() {
+    if (
+      !activeCall ||
+      hangingUp
+    ) {
+      return;
+    }
+
+    setHangingUp(
+      true,
+    );
+
+    try {
+      await hangupProviderCall(
+        activeCall.id,
+        getVoiceClientId(),
+      );
+
+      closeMedia();
+
+      setActiveCall(
+        null,
+      );
+
+      toast.success(
+        "Chamada encerrada.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Falha ao encerrar chamada.",
+      );
+    } finally {
+      setHangingUp(
+        false,
+      );
+    }
+  }
+
+  function toggleMute() {
+    const connection =
+      connectionRef.current;
+
+    if (!connection) {
+      return;
+    }
+
+    const nextMuted =
+      !muted;
+
+    connection.micStream
+      .getAudioTracks()
+      .forEach(
+        (track) => {
+          track.enabled =
+            !nextMuted;
+        },
+      );
+
+    setMuted(
+      nextMuted,
+    );
+  }
+
+  return (
+    <>
+      <audio
+        ref={
+          audioRef
+        }
+        autoPlay
+        playsInline
+        hidden
+      />
+{activeCall && (
+        <div className="fixed bottom-4 left-4 z-[79] w-[calc(100vw-2rem)] max-w-[380px] rounded-xl border border-border bg-background p-4 shadow-2xl">
+          <div>
+            <p className="text-sm font-semibold">
+              Zenith Calls
+            </p>
+
+            <p className="mt-1 text-lg font-medium">
+              {formatPhone(
+                activeCall.to_phone,
+              )}
+            </p>
+
+            <p className="mt-1 text-xs text-muted-foreground">
+              Saída
+              {" · "}
+              {stateLabel(
+                activeCall.state,
+              )}
+            </p>
+
+            <p className="mt-1 font-mono text-sm tabular-nums text-muted-foreground">
+              {activeCall.state ===
+              "active"
+                ? "Em chamada "
+                : "Aguardando "}
+              {formatCallElapsed(
+                getCallElapsedSeconds(
+                  activeCall,
+                  clockNow,
+                ),
+              )}
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {mediaReady && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={
+                  toggleMute
+                }
+              >
+                {muted ? (
+                  <MicOff className="mr-2 size-4" />
+                ) : (
+                  <Mic className="mr-2 size-4" />
+                )}
+
+                {muted
+                  ? "Ativar microfone"
+                  : "Silenciar"}
+              </Button>
+            )}
+
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={
+                hangingUp
+              }
+              onClick={() =>
+                void hangupCall()
+              }
+            >
+              {hangingUp ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <PhoneOff className="mr-2 size-4" />
+              )}
+
+              Encerrar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <Dialog
+        open={
+          dialogOpen
+        }
+        onOpenChange={
+          setDialogOpen
+        }
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Nova chamada
+            </DialogTitle>
+
+            <DialogDescription>
+              Informe o número com DDI, DDD e telefone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={(
+              event,
+            ) => {
+              event.preventDefault();
+
+              void startCall();
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="zenith-call-phone">
+                Número
+              </Label>
+
+              <Input
+                id="zenith-call-phone"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="5566992277633"
+                value={
+                  phone
+                }
+                disabled={
+                  starting
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setPhone(
+                    event.target.value,
+                  )
+                }
+                autoFocus
+              />
+            </div>
+
+            <DialogFooter className="mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  starting
+                }
+                onClick={() =>
+                  setDialogOpen(
+                    false,
+                  )
+                }
+              >
+                Cancelar
+              </Button>
+
+              <Button
+                type="submit"
+                disabled={
+                  starting
+                }
+              >
+                {starting ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <PhoneCall className="mr-2 size-4" />
+                )}
+
+                {starting
+                  ? "Ligando..."
+                  : "Ligar"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

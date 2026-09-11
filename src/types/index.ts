@@ -490,211 +490,92 @@ export interface BroadcastRecipient {
 }
 
 // ============================================================
-// Automations (migration 006)
+// Automations Native (CRM-09)
 // ============================================================
 
+export type AutomationStatus = 'draft' | 'active' | 'paused' | 'archived';
+
 export type AutomationTriggerType =
-  | 'new_message_received'
-  | 'first_inbound_message'
-  | 'keyword_match'
-  | 'new_contact_created'
-  | 'conversation_assigned'
-  | 'tag_added'
-  | 'time_based'
-  /** Customer tapped a reply button / list row whose id matches; lets
-   *  multi-step menus be chained across automations. */
-  | 'interactive_reply';
+  | 'contact.created'
+  | 'deal.created'
+  | 'deal.stage_changed'
+  | 'deal.won'
+  | 'deal.lost'
+  | 'task.completed'
+  | 'conversation.created'
+  | 'message.received';
 
-export type AutomationStepType =
-  | 'send_message'
-  | 'send_buttons'
-  | 'send_list'
-  | 'send_template'
-  | 'add_tag'
-  | 'remove_tag'
-  | 'assign_conversation'
-  | 'update_contact_field'
-  | 'create_deal'
-  | 'wait'
-  | 'condition'
-  | 'send_webhook'
-  | 'close_conversation';
+export type AutomationConditionOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'contains'
+  | 'is_empty'
+  | 'is_not_empty';
 
-export type AutomationLogStatus = 'success' | 'partial' | 'failed';
-
-export interface KeywordMatchTriggerConfig {
-  keywords: string[];
-  /**
-   * `contains` (the default) is a raw substring test, so a short keyword
-   * matches inside longer words — "k" fires on "thanks". `word` is the
-   * boundary-aware alternative added for issue #409; see
-   * `matchesWholeWord` in `@/lib/automations/engine` for its exact
-   * semantics. Flows carry their own keyword config and stay
-   * substring-only (`@/lib/flows/types`).
-   */
-  match_type: 'exact' | 'contains' | 'word';
-  case_sensitive?: boolean;
-}
-
-export interface TagTriggerConfig {
-  tag_id: string;
-}
-
-export interface TimeBasedTriggerConfig {
-  /** Cron expression or simple HH:mm string; engine can accept either. */
-  schedule: string;
-  timezone?: string;
-}
-
-export interface InteractiveReplyTriggerConfig {
-  /** Button / list-row ids to match, exact. Any one matching fires. */
-  reply_ids: string[];
-}
-
-export type AutomationTriggerConfig =
-  | Record<string, never>
-  | KeywordMatchTriggerConfig
-  | TagTriggerConfig
-  | TimeBasedTriggerConfig
-  | InteractiveReplyTriggerConfig
-  | Record<string, unknown>;
-
-export interface SendMessageStepConfig {
-  text: string;
-}
-
-/**
- * `send_buttons` / `send_list` step configs carry the full interactive
- * payload (same shape stored on messages + quick replies). `kind` is
- * implied by the step_type but kept on the payload for a uniform shape.
- */
-export type SendButtonsStepConfig = InteractiveMessagePayload;
-export type SendListStepConfig = InteractiveMessagePayload;
-
-export interface SendTemplateStepConfig {
-  template_name: string;
-  language?: string;
-  variables?: Record<string, string>;
-}
-
-export interface TagStepConfig {
-  tag_id: string;
-}
-
-export interface AssignConversationStepConfig {
-  mode: 'specific' | 'round_robin';
-  agent_id?: string;
-}
-
-export interface UpdateContactFieldStepConfig {
-  /**
-   * Either a built-in contact column (`name` | `email` | `company`) or a
-   * custom field encoded as `custom:<custom_field_id>`. The `custom:` prefix
-   * is how the engine distinguishes a `contact_custom_values` write from a
-   * direct `contacts` column update. Older configs store the bare column name,
-   * so this stays backward compatible.
-   */
+export interface AutomationCondition {
   field: string;
-  /** Supports `{{ vars.* }}` / `{{ message.text }}` interpolation at runtime. */
-  value: string;
+  operator: AutomationConditionOperator;
+  value?: string | number | boolean;
 }
 
-export interface CreateDealStepConfig {
-  pipeline_id: string;
-  stage_id: string;
-  title: string;
-  value?: number;
+export type AutomationActionType =
+  | 'contact.add_tag'
+  | 'contact.remove_tag'
+  | 'deal.move_stage'
+  | 'task.create'
+  | 'task.complete'
+  | 'note.create'
+  | 'send_message';
+
+export interface AutomationAction {
+  type: AutomationActionType;
+  params: Record<string, any>;
 }
-
-export interface WaitStepConfig {
-  amount: number;
-  unit: 'minutes' | 'hours' | 'days';
-}
-
-export type ConditionSubject =
-  | 'contact_field'
-  | 'tag_presence'
-  | 'message_content'
-  | 'time_of_day';
-
-export interface ConditionStepConfig {
-  subject: ConditionSubject;
-  /** e.g. field name, tag id, substring, or "HH:mm-HH:mm" depending on subject */
-  operand?: string;
-  /** For contact_field equals / message_content contains — comparison value */
-  value?: string;
-}
-
-export interface SendWebhookStepConfig {
-  url: string;
-  headers?: Record<string, string>;
-  body_template?: string;
-}
-
-export type AutomationStepConfig =
-  | SendMessageStepConfig
-  | SendButtonsStepConfig
-  | SendListStepConfig
-  | SendTemplateStepConfig
-  | TagStepConfig
-  | AssignConversationStepConfig
-  | UpdateContactFieldStepConfig
-  | CreateDealStepConfig
-  | WaitStepConfig
-  | ConditionStepConfig
-  | SendWebhookStepConfig
-  | Record<string, never>
-  | Record<string, unknown>;
 
 export interface Automation {
   id: string;
-  /** Account tenancy key — every automation belongs to one account
-   *  (migration 017 made the column NOT NULL). The engine looks up
-   *  active automations by this field on inbound webhook events. */
-  account_id: string;
-  /** Original author. Used for log audit + outbound message
-   *  sender-of-record, never for tenancy isolation. */
-  user_id: string;
+  accountId: string;
   name: string;
-  description?: string;
-  trigger_type: AutomationTriggerType;
-  trigger_config: AutomationTriggerConfig;
-  is_active: boolean;
-  execution_count: number;
-  last_executed_at?: string | null;
-  created_at: string;
-  updated_at: string;
+  description: string | null;
+  status: AutomationStatus;
+  triggerType: AutomationTriggerType;
+  triggerConfig: Record<string, any>;
+  conditions: AutomationCondition[];
+  actions: AutomationAction[];
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+  activatedAt: string | null;
 }
 
-export interface AutomationStep {
+export type AutomationRunStatus = 'running' | 'completed' | 'failed';
+
+export interface AutomationRun {
   id: string;
-  automation_id: string;
-  parent_step_id?: string | null;
-  branch?: 'yes' | 'no' | null;
-  step_type: AutomationStepType;
-  step_config: AutomationStepConfig;
-  position: number;
-  created_at: string;
+  accountId: string;
+  automationId: string;
+  triggerType: AutomationTriggerType;
+  triggerEventId: string;
+  entityType: string | null;
+  entityId: string | null;
+  status: AutomationRunStatus;
+  errorCode: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  failedAt: string | null;
+  createdAt: string;
 }
 
-export interface AutomationLogStepResult {
-  step_id: string;
-  step_type: AutomationStepType;
-  status: 'success' | 'skipped' | 'failed';
-  detail?: string;
-}
-
-export interface AutomationLog {
+export interface AutomationActionRun {
   id: string;
-  automation_id: string;
-  user_id: string;
-  contact_id: string | null;
-  trigger_event: string;
-  steps_executed: AutomationLogStepResult[];
-  status: AutomationLogStatus;
-  error_message?: string | null;
-  created_at: string;
-  contact?: Contact;
+  automationRunId: string;
+  actionIndex: number;
+  actionType: AutomationActionType;
+  status: AutomationRunStatus;
+  errorCode: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  failedAt: string | null;
 }
 
 // ============================================================

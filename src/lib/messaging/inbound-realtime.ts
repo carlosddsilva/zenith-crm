@@ -1,4 +1,4 @@
-﻿import {
+import {
   eq,
 } from "drizzle-orm";
 
@@ -85,6 +85,24 @@ export async function persistInboundMessageRealtime(
         "[inbound realtime publish]",
         error,
       );
+    }
+
+    // Publish Automation Event
+    try {
+      const { publishEvent } = await import('@/lib/events/bus');
+      await publishEvent({
+        accountId: channel.accountId,
+        triggerType: 'message.received',
+        entityType: 'message',
+        entityId: result.messageId,
+        payload: {
+          messageId: result.messageId,
+          conversationId: result.conversationId,
+          contactId: result.contactId,
+        },
+      });
+    } catch (evtErr) {
+      console.error('[EventBus] Failed to publish message.received:', evtErr);
     }
   }
 

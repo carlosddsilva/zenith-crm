@@ -134,6 +134,13 @@
       "when": 1789135540902,
       "tag": "0018_breezy_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789148077988,
+      "tag": "0019_yummy_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

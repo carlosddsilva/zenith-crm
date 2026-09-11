@@ -1,0 +1,242 @@
+ Image zenith-crm-app:local Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 768B 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 2.69kB 0.0s done
+#2 DONE 0.2s
+
+#3 resolve image config for docker-image://docker.io/docker/dockerfile:1
+#3 DONE 1.5s
+
+#4 docker-image://docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+#4 resolve docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+#4 resolve docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32 0.2s done
+#4 DONE 0.2s
+
+#4 docker-image://docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+#4 CACHED
+
+#5 [internal] load metadata for docker.io/library/node:22-bookworm-slim
+#5 DONE 1.4s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 226B 0.0s done
+#6 DONE 0.1s
+
+#7 [internal] load build context
+#7 DONE 0.0s
+
+#8 [deps 1/5] FROM docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+#8 resolve docker.io/library/node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 0.1s done
+#8 DONE 0.2s
+
+#7 [internal] load build context
+#7 transferring context: 691.02kB 0.6s done
+#7 DONE 0.8s
+
+#9 [deps 4/5] COPY package.json package-lock.json ./
+#9 CACHED
+
+#10 [deps 5/5] RUN npm ci
+#10 CACHED
+
+#11 [deps 2/5] WORKDIR /app
+#11 CACHED
+
+#12 [deps 3/5] RUN apt-get update     && apt-get install -y --no-install-recommends python3 make g++     && rm -rf /var/lib/apt/lists/*
+#12 CACHED
+
+#13 [builder 3/5] COPY --from=deps /app/node_modules ./node_modules
+#13 CACHED
+
+#14 [builder 4/5] COPY . .
+#14 DONE 4.7s
+
+#15 [builder 5/5] RUN npm run build
+#15 3.428 
+#15 3.428 > zenith-crm@0.8.0 build
+#15 3.428 > next build
+#15 3.428 
+#15 6.265 ▲ Next.js 16.2.12 (Turbopack)
+#15 6.265 
+#15 6.269 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+#15 6.449   Creating an optimized production build ...
+#15 45.62 ✓ Compiled successfully in 38.8s
+#15 45.67   Running TypeScript ...
+#15 170.2   Finished TypeScript in 2.1min ...
+#15 170.7   Collecting page data using 7 workers ...
+#15 194.9 ⚠ Using edge runtime on a page currently disables static generation for that page
+#15 196.0   Generating static pages using 7 workers (0/70) ...
+#15 198.4   Generating static pages using 7 workers (17/70) 
+#15 198.6   Generating static pages using 7 workers (34/70) 
+#15 203.5   Generating static pages using 7 workers (52/70) 
+#15 205.0 ✓ Generating static pages using 7 workers (70/70) in 9.1s
+#15 205.0   Finalizing page optimization ...
+#15 212.0 
+#15 212.0 Route (app)
+#15 212.0 ┌ ○ /
+#15 212.0 ├ ○ /_not-found
+#15 212.0 ├ ○ /agents
+#15 212.0 ├ ƒ /api/account
+#15 212.0 ├ ƒ /api/account/api-keys
+#15 212.0 ├ ƒ /api/account/api-keys/[id]
+#15 212.0 ├ ƒ /api/account/invitations
+#15 212.0 ├ ƒ /api/account/invitations/[id]
+#15 212.0 ├ ƒ /api/account/members
+#15 212.0 ├ ƒ /api/account/members/[userId]
+#15 212.0 ├ ƒ /api/account/transfer-ownership
+#15 212.0 ├ ƒ /api/ai/autoreply/[conversationId]
+#15 212.0 ├ ƒ /api/ai/config
+#15 212.0 ├ ƒ /api/ai/draft
+#15 212.0 ├ ƒ /api/ai/knowledge
+#15 212.0 ├ ƒ /api/ai/knowledge/[id]
+#15 212.0 ├ ƒ /api/ai/knowledge/reindex
+#15 212.0 ├ ƒ /api/ai/playground
+#15 212.0 ├ ƒ /api/ai/test
+#15 212.0 ├ ƒ /api/ai/usage
+#15 212.0 ├ ƒ /api/auth/zenith/context
+#15 212.0 ├ ƒ /api/auth/zenith/login
+#15 212.0 ├ ƒ /api/auth/zenith/logout
+#15 212.0 ├ ƒ /api/auth/zenith/me
+#15 212.0 ├ ƒ /api/automations
+#15 212.0 ├ ƒ /api/automations/[id]
+#15 212.0 ├ ƒ /api/automations/[id]/duplicate
+#15 212.0 ├ ƒ /api/automations/cron
+#15 212.0 ├ ƒ /api/automations/engine
+#15 212.0 ├ ƒ /api/contacts/[id]/tags
+#15 212.0 ├ ƒ /api/flows
+#15 212.0 ├ ƒ /api/flows/[id]
+#15 212.0 ├ ƒ /api/flows/[id]/activate
+#15 212.0 ├ ƒ /api/flows/[id]/runs
+#15 212.0 ├ ƒ /api/flows/cron
+#15 212.0 ├ ƒ /api/flows/templates
+#15 212.0 ├ ƒ /api/internal/voice/wacalls/channels
+#15 212.0 ├ ƒ /api/invitations/[token]/peek
+#15 212.0 ├ ƒ /api/invitations/[token]/redeem
+#15 212.0 ├ ƒ /api/quick-replies
+#15 212.0 ├ ƒ /api/quick-replies/[id]
+#15 212.0 ├ ƒ /api/v1/broadcasts
+#15 212.0 ├ ƒ /api/v1/broadcasts/[id]
+#15 212.0 ├ ƒ /api/v1/contacts
+#15 212.0 ├ ƒ /api/v1/contacts/[id]
+#15 212.0 ├ ƒ /api/v1/conversations
+#15 212.0 ├ ƒ /api/v1/conversations/[id]
+#15 212.0 ├ ƒ /api/v1/conversations/[id]/messages
+#15 212.0 ├ ƒ /api/v1/me
+#15 212.0 ├ ƒ /api/v1/messages
+#15 212.0 ├ ƒ /api/v1/webhooks
+#15 212.0 ├ ƒ /api/v1/webhooks/[id]
+#15 212.0 ├ ƒ /api/webhooks/zenith/evolution/[channelId]
+#15 212.0 ├ ƒ /api/webhooks/zenith/meta
+#15 212.0 ├ ƒ /api/webhooks/zenith/test-inbound/[channelId]
+#15 212.0 ├ ƒ /api/webhooks/zenith/voice/wacalls/[channelId]
+#15 212.0 ├ ƒ /api/whatsapp/broadcast
+#15 212.0 ├ ƒ /api/whatsapp/broadcast/[id]/resume
+#15 212.0 ├ ƒ /api/whatsapp/config
+#15 212.0 ├ ƒ /api/whatsapp/config/verify-registration
+#15 212.0 ├ ƒ /api/whatsapp/media/[mediaId]
+#15 212.0 ├ ƒ /api/whatsapp/react
+#15 212.0 ├ ƒ /api/whatsapp/send
+#15 212.0 ├ ƒ /api/whatsapp/templates/[id]
+#15 212.0 ├ ƒ /api/whatsapp/templates/submit
+#15 212.0 ├ ƒ /api/whatsapp/templates/sync
+#15 212.0 ├ ƒ /api/whatsapp/webhook
+#15 212.0 ├ ƒ /api/zenith/calls
+#15 212.0 ├ ƒ /api/zenith/calls/[id]/action
+#15 212.0 ├ ƒ /api/zenith/calls/[id]/webrtc
+#15 212.0 ├ ƒ /api/zenith/calls/incoming
+#15 212.0 ├ ƒ /api/zenith/contacts
+#15 212.0 ├ ƒ /api/zenith/contacts/[id]
+#15 212.0 ├ ƒ /api/zenith/contacts/[id]/custom-fields
+#15 212.0 ├ ƒ /api/zenith/contacts/[id]/tags
+#15 212.0 ├ ƒ /api/zenith/conversations
+#15 212.0 ├ ƒ /api/zenith/conversations/[id]
+#15 212.0 ├ ƒ /api/zenith/conversations/[id]/messages
+#15 212.0 ├ ƒ /api/zenith/custom-fields
+#15 212.0 ├ ƒ /api/zenith/custom-fields/[id]
+#15 212.0 ├ ƒ /api/zenith/inbox/events
+#15 212.0 ├ ƒ /api/zenith/ivr-flows
+#15 212.0 ├ ƒ /api/zenith/ivr-flows/[id]
+#15 212.0 ├ ƒ /api/zenith/ivr-flows/[id]/draft
+#15 212.0 ├ ƒ /api/zenith/ivr-flows/[id]/publish
+#15 212.0 ├ ƒ /api/zenith/ivr-flows/[id]/validate
+#15 212.0 ├ ƒ /api/zenith/messaging-channels
+#15 212.0 ├ ƒ /api/zenith/messaging-channels/[id]
+#15 212.0 ├ ƒ /api/zenith/tags
+#15 212.0 ├ ƒ /api/zenith/tags/[id]
+#15 212.0 ├ ƒ /api/zenith/voice-channels
+#15 212.0 ├ ƒ /api/zenith/voice-channels/[id]
+#15 212.0 ├ ○ /automations
+#15 212.0 ├ ƒ /automations/[id]/edit
+#15 212.0 ├ ƒ /automations/[id]/logs
+#15 212.0 ├ ○ /automations/new
+#15 212.0 ├ ○ /broadcasts
+#15 212.0 ├ ƒ /broadcasts/[id]
+#15 212.0 ├ ○ /broadcasts/new
+#15 212.0 ├ ○ /contacts
+#15 212.0 ├ ○ /dashboard
+#15 212.0 ├ ○ /flows
+#15 212.0 ├ ƒ /flows/[id]
+#15 212.0 ├ ƒ /flows/[id]/runs
+#15 212.0 ├ ○ /forgot-password
+#15 212.0 ├ ƒ /icon
+#15 212.0 ├ ○ /inbox
+#15 212.0 ├ ○ /ivr
+#15 212.0 ├ ƒ /ivr/[id]
+#15 212.0 ├ ƒ /join/[token]
+#15 212.0 ├ ○ /login
+#15 212.0 ├ ○ /notifications
+#15 212.0 ├ ○ /pipelines
+#15 212.0 ├ ○ /settings
+#15 212.0 ├ ○ /signup
+#15 212.0 ├ ○ /zenith-auth-test
+#15 212.0 ├ ○ /zenith-calls
+#15 212.0 └ ○ /zenith-login
+#15 212.0 
+#15 212.0 
+#15 212.0 ƒ Proxy (Middleware)
+#15 212.0 
+#15 212.0 ○  (Static)   prerendered as static content
+#15 212.0 ƒ  (Dynamic)  server-rendered on demand
+#15 212.0 
+#15 212.1 npm notice
+#15 212.1 npm notice New major version of npm available! 10.9.8 -> 12.0.2
+#15 212.1 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+#15 212.1 npm notice To update run: npm install -g npm@12.0.2
+#15 212.1 npm notice
+#15 DONE 216.3s
+
+#16 [runner 3/7] RUN groupadd --system --gid 1001 nextjs     && useradd --system --uid 1001 --gid nextjs nextjs
+#16 CACHED
+
+#17 [runner 4/7] COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
+#17 DONE 60.9s
+
+#18 [runner 5/7] COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
+#18 DONE 0.9s
+
+#19 [runner 6/7] COPY --from=builder --chown=nextjs:nextjs /app/public ./public
+#19 DONE 0.8s
+
+#20 [runner 7/7] COPY --from=builder --chown=nextjs:nextjs /app/scripts/voice-events-worker.mjs ./scripts/voice-events-worker.mjs
+#20 DONE 0.8s
+
+#21 exporting to image
+#21 exporting layers
+#21 exporting layers 5.5s done
+#21 exporting manifest sha256:7e1b06539575ca1022062e2ae67458df7e06154a2a384fd9dbea09874a58db98 0.1s done
+#21 exporting config sha256:214b7f36a726291baa2d59e3594782cd49b933e845ef6bfec6ba3a0712022736
+#21 exporting config sha256:214b7f36a726291baa2d59e3594782cd49b933e845ef6bfec6ba3a0712022736 0.1s done
+#21 exporting attestation manifest sha256:cc8c834ee12bb6a8f016e7089f916a72847bce2b0b0576e516087f0da84ba2c8
+#21 exporting attestation manifest sha256:cc8c834ee12bb6a8f016e7089f916a72847bce2b0b0576e516087f0da84ba2c8 0.2s done
+#21 exporting manifest list sha256:4e9e750f3915bc37e82033b97c186d1a19f49f71164864a4618d03767ad51607 0.1s done
+#21 naming to docker.io/library/zenith-crm-app:local 0.0s done
+#21 unpacking to docker.io/library/zenith-crm-app:local
+#21 unpacking to docker.io/library/zenith-crm-app:local 3.5s done
+#21 DONE 9.9s
+
+#22 resolving provenance for metadata file
+#22 DONE 0.3s
+ Image zenith-crm-app:local Built 

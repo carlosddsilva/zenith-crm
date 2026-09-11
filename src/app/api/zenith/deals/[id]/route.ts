@@ -56,7 +56,7 @@ export async function PATCH(
       }
     }
 
-    const result = await db.transaction(async (tx) => {
+    const txResult = await db.transaction(async (tx) => {
       const [existingDeal] = await tx
         .select()
         .from(deals)
@@ -112,14 +112,19 @@ export async function PATCH(
         }
       }
 
-      return updated;
+      return { updated, changes: {
+        stageChanged: updateData.stageId && updateData.stageId !== existingDeal.stageId,
+        won: updateData.status === 'won' && existingDeal.status !== 'won',
+        lost: updateData.status === 'lost' && existingDeal.status !== 'lost',
+      } };
     });
 
-    if (!result) {
+    if (!txResult) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
     }
 
     // Map back to snake_case for legacy frontend
+    const result = txResult.updated;
     const dealRow = {
       ...result,
       stage_id: result.stageId,
@@ -134,6 +139,40 @@ export async function PATCH(
       lost_at: result.lostAt,
       account_id: result.accountId,
     };
+
+    // Publish Automation Events outside transaction
+    try {
+      const { publishEvent } = await import('@/lib/events/bus');
+      if (txResult.changes.stageChanged) {
+        publishEvent({
+          accountId,
+          triggerType: 'deal.stage_changed',
+          entityType: 'deal',
+          entityId: result.id,
+          payload: { deal: result },
+        });
+      }
+      if (txResult.changes.won) {
+        publishEvent({
+          accountId,
+          triggerType: 'deal.won',
+          entityType: 'deal',
+          entityId: result.id,
+          payload: { deal: result },
+        });
+      }
+      if (txResult.changes.lost) {
+        publishEvent({
+          accountId,
+          triggerType: 'deal.lost',
+          entityType: 'deal',
+          entityId: result.id,
+          payload: { deal: result },
+        });
+      }
+    } catch (evtErr) {
+      console.error('[EventBus] Failed to publish deal events:', evtErr);
+    }
 
     return NextResponse.json(dealRow);
   } catch (error: any) {

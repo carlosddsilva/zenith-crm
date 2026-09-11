@@ -287,6 +287,20 @@ export async function POST(request: Request) {
       })
       .returning();
 
+    // Publish Automation Events
+    try {
+      const { publishEvent } = await import('@/lib/events/bus');
+      publishEvent({
+        accountId: context.accountId,
+        triggerType: 'contact.created',
+        entityType: 'contact',
+        entityId: contact.id,
+        payload: { contact },
+      });
+    } catch (evtErr) {
+      console.error('[EventBus] Failed to publish contact.created:', evtErr);
+    }
+
     return NextResponse.json(
       {
         item: {

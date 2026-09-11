@@ -1,0 +1,716 @@
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  PhoneIncoming,
+} from "lucide-react";
+
+import {
+  VoiceCallControls,
+} from "@/components/voice/voice-call-controls";
+
+type VoiceCallState =
+  | "new"
+  | "ringing"
+  | "connecting"
+  | "active"
+  | "ended"
+  | "failed"
+  | "rejected";
+
+interface IncomingVoiceCall {
+  id: string;
+
+  voice_channel_id:
+    string | null;
+
+  provider:
+    string;
+
+  provider_call_id:
+    string | null;
+
+  direction:
+    "inbound";
+
+  state:
+    VoiceCallState;
+
+  contact_id:
+    string | null;
+
+  contact_name:
+    string | null;
+
+  contact_phone:
+    string | null;
+
+  contact_avatar_url:
+    string | null;
+
+  from_phone:
+    string | null;
+
+  to_phone:
+    string | null;
+
+  started_at:
+    string | null;
+
+  ringing_at:
+    string | null;
+
+  answered_at:
+    string | null;
+
+  created_at:
+    string;
+
+  updated_at:
+    string;
+}
+
+interface IncomingCallsResponse {
+  calls?:
+    IncomingVoiceCall[];
+}
+
+const POLL_INTERVAL_MS =
+  1500;
+
+const TERMINAL_STATES =
+  new Set<VoiceCallState>([
+    "ended",
+    "failed",
+    "rejected",
+  ]);
+
+function statePriority(
+  state:
+    VoiceCallState,
+) {
+  switch (state) {
+    case "active":
+      return 0;
+
+    case "connecting":
+      return 1;
+
+    case "ringing":
+      return 2;
+
+    default:
+      return 3;
+  }
+}
+
+export function VoiceCallListener() {
+  const [calls, setCalls] =
+    useState<
+      IncomingVoiceCall[]
+    >([]);
+
+  const requestRunningRef =
+    useRef(false);
+
+  const ringtoneContextRef =
+    useRef<AudioContext | null>(
+      null,
+    );
+
+  const ringtoneTimerRef =
+    useRef<number | null>(
+      null,
+    );
+
+  /*
+   * Quando o operador rejeita ou encerra,
+   * removemos imediatamente da interface.
+   *
+   * O ID fica temporariamente suprimido
+   * para impedir que um poll executado antes
+   * do SSE atualizar o banco faca a chamada
+   * reaparecer.
+   */
+  const suppressedRef =
+    useRef<
+      Set<string>
+    >(
+      new Set(),
+    );
+
+  function stopRingtone() {
+    if (
+      ringtoneTimerRef.current !==
+      null
+    ) {
+      window.clearInterval(
+        ringtoneTimerRef.current,
+      );
+
+      ringtoneTimerRef.current =
+        null;
+    }
+
+    const context =
+      ringtoneContextRef.current;
+
+    if (context) {
+      void context.close();
+
+      ringtoneContextRef.current =
+        null;
+    }
+  }
+
+  function playRingPulse(
+    context:
+      AudioContext,
+  ) {
+    const now =
+      context.currentTime;
+
+    const duration =
+      1.25;
+
+    /*
+     * Timbre mais estridente, semelhante
+     * ao "TRIIIIIM" de campainha/telefone.
+     */
+    const masterGain =
+      context.createGain();
+
+    masterGain.gain.setValueAtTime(
+      0.08,
+      now,
+    );
+
+    masterGain.connect(
+      context.destination,
+    );
+
+    /*
+     * Tremulacao rapida para produzir
+     * o efeito "trrrrrrrim".
+     */
+    const tremolo =
+      context.createOscillator();
+
+    const tremoloGain =
+      context.createGain();
+
+    tremolo.type =
+      "square";
+
+    tremolo.frequency.setValueAtTime(
+      18,
+      now,
+    );
+
+    tremoloGain.gain.setValueAtTime(
+      0.065,
+      now,
+    );
+
+    tremolo.connect(
+      tremoloGain,
+    );
+
+    tremoloGain.connect(
+      masterGain.gain,
+    );
+
+    const first =
+      context.createOscillator();
+
+    first.type =
+      "square";
+
+    first.frequency.setValueAtTime(
+      950,
+      now,
+    );
+
+    first.connect(
+      masterGain,
+    );
+
+    const second =
+      context.createOscillator();
+
+    second.type =
+      "square";
+
+    second.frequency.setValueAtTime(
+      1250,
+      now,
+    );
+
+    second.connect(
+      masterGain,
+    );
+
+    first.start(
+      now,
+    );
+
+    second.start(
+      now,
+    );
+
+    tremolo.start(
+      now,
+    );
+
+    first.stop(
+      now + duration,
+    );
+
+    second.stop(
+      now + duration,
+    );
+
+    tremolo.stop(
+      now + duration,
+    );
+
+    masterGain.gain.setValueAtTime(
+      0.08,
+      now + duration - 0.08,
+    );
+
+    masterGain.gain.linearRampToValueAtTime(
+      0.0001,
+      now + duration,
+    );
+  }
+
+  function startRingtone() {
+    if (
+      ringtoneTimerRef.current !==
+      null
+    ) {
+      return;
+    }
+
+    const context =
+      new AudioContext();
+
+    ringtoneContextRef.current =
+      context;
+
+    void context.resume();
+
+    playRingPulse(
+      context,
+    );
+
+    ringtoneTimerRef.current =
+      window.setInterval(
+        () => {
+          if (
+            context.state ===
+            "closed"
+          ) {
+            return;
+          }
+
+          playRingPulse(
+            context,
+          );
+        },
+        2600,
+      );
+  }
+
+  const loadCalls =
+    useCallback(
+      async () => {
+        if (
+          requestRunningRef.current
+        ) {
+          return;
+        }
+
+        requestRunningRef.current =
+          true;
+
+        try {
+          const response =
+            await fetch(
+              "/api/zenith/calls/incoming",
+              {
+                method:
+                  "GET",
+
+                credentials:
+                  "include",
+
+                cache:
+                  "no-store",
+              },
+            );
+
+          if (
+            response.status ===
+              401 ||
+            response.status ===
+              403
+          ) {
+            setCalls([]);
+
+            return;
+          }
+
+          if (!response.ok) {
+            return;
+          }
+
+          const body =
+            (await response
+              .json()
+              .catch(
+                () => null,
+              )) as
+              | IncomingCallsResponse
+              | null;
+
+          const incoming =
+            Array.isArray(
+              body?.calls,
+            )
+              ? body.calls
+              : [];
+
+          const serverIds =
+            new Set(
+              incoming.map(
+                (call) =>
+                  call.id,
+              ),
+            );
+
+          /*
+           * Quando o backend deixa de
+           * retornar um ID suprimido,
+           * significa que o lifecycle
+           * persistido ja convergiu.
+           */
+          for (
+            const id of
+              suppressedRef.current
+          ) {
+            if (
+              !serverIds.has(
+                id,
+              )
+            ) {
+              suppressedRef.current
+                .delete(
+                  id,
+                );
+            }
+          }
+
+          setCalls(
+            (previous) => {
+              const previousById =
+                new Map(
+                  previous.map(
+                    (call) => [
+                      call.id,
+                      call,
+                    ],
+                  ),
+                );
+
+              return incoming
+                .filter(
+                  (call) =>
+                    !suppressedRef.current
+                      .has(
+                        call.id,
+                      ),
+                )
+                .map(
+                  (serverCall) => {
+                    const localCall =
+                      previousById.get(
+                        serverCall.id,
+                      );
+
+                    if (
+                      !localCall
+                    ) {
+                      return serverCall;
+                    }
+
+                    /*
+                     * Estados visuais de uma chamada
+                     * devem avancar somente nesta ordem:
+                     *
+                     * ringing -> connecting -> active
+                     *
+                     * Polling e SSE podem chegar fora de
+                     * ordem. Nunca deixamos um snapshot
+                     * atrasado regredir a interface.
+                     */
+                    const localPriority =
+                      statePriority(
+                        localCall.state,
+                      );
+
+                    const serverPriority =
+                      statePriority(
+                        serverCall.state,
+                      );
+
+                    const localIsLiveState =
+                      localPriority <= 2;
+
+                    const serverIsLiveState =
+                      serverPriority <= 2;
+
+                    if (
+                      localIsLiveState &&
+                      serverIsLiveState &&
+                      localPriority <
+                        serverPriority
+                    ) {
+                      return {
+                        ...serverCall,
+
+                        state:
+                          localCall.state,
+                      };
+                    }
+
+                    return serverCall;
+                  },
+                );
+            },
+          );
+        } catch {
+          /*
+           * Falha temporaria de polling
+           * nao deve derrubar nem fechar
+           * uma chamada WebRTC existente.
+           */
+        } finally {
+          requestRunningRef.current =
+            false;
+        }
+      },
+      [],
+    );
+
+  useEffect(
+    () => {
+      void loadCalls();
+
+      const timer =
+        window.setInterval(
+          () => {
+            void loadCalls();
+          },
+          POLL_INTERVAL_MS,
+        );
+
+      return () => {
+        window.clearInterval(
+          timer,
+        );
+      };
+    },
+    [
+      loadCalls,
+    ],
+  );
+
+  useEffect(
+    () => {
+      const hasRingingCall =
+        calls.some(
+          (call) =>
+            call.state ===
+            "ringing",
+        );
+
+      if (hasRingingCall) {
+        startRingtone();
+      }
+
+      if (!hasRingingCall) {
+        stopRingtone();
+      }
+
+      return () => {
+        stopRingtone();
+      };
+    },
+    [
+      calls,
+    ],
+  );
+
+  function handleStateChange(
+    callId:
+      string,
+
+    state:
+      VoiceCallState,
+  ) {
+    if (
+      TERMINAL_STATES.has(
+        state,
+      )
+    ) {
+      suppressedRef.current
+        .add(
+          callId,
+        );
+
+      setCalls(
+        (current) =>
+          current.filter(
+            (call) =>
+              call.id !==
+              callId,
+          ),
+      );
+
+      return;
+    }
+
+    setCalls(
+      (current) =>
+        current.map(
+          (call) =>
+            call.id ===
+              callId
+              ? {
+                  ...call,
+                  state,
+                }
+              : call,
+        ),
+    );
+  }
+
+  if (
+    calls.length ===
+    0
+  ) {
+    return null;
+  }
+
+  /*
+   * Uma chamada que ja pertence ao
+   * operador sempre tem prioridade
+   * sobre novas chamadas tocando.
+   */
+  const ordered =
+    [...calls].sort(
+      (left, right) => {
+        const priority =
+          statePriority(
+            left.state,
+          ) -
+          statePriority(
+            right.state,
+          );
+
+        if (
+          priority !== 0
+        ) {
+          return priority;
+        }
+
+        const leftTime =
+          Date.parse(
+            left.ringing_at ??
+              left.created_at,
+          );
+
+        const rightTime =
+          Date.parse(
+            right.ringing_at ??
+              right.created_at,
+          );
+
+        return (
+          rightTime -
+          leftTime
+        );
+      },
+    );
+
+  const selected =
+    ordered[0];
+
+  const waitingCount =
+    calls.filter(
+      (call) =>
+        call.state ===
+          "ringing",
+    ).length;
+
+  return (
+    <div className="pointer-events-none fixed right-4 bottom-4 z-[80] w-[calc(100vw-2rem)] max-w-[420px]">
+      <div className="pointer-events-auto space-y-2">
+        {waitingCount > 1 && (
+          <div className="ml-auto flex w-fit items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs shadow-lg">
+            <PhoneIncoming className="size-3.5" />
+
+            <span>
+              {waitingCount} chamadas aguardando
+            </span>
+          </div>
+        )}
+
+        <div className="shadow-2xl">
+          <VoiceCallControls
+            key={
+              selected.id
+            }
+            callId={
+              selected.id
+            }
+            state={
+              selected.state
+            }
+            direction={
+              selected.direction
+            }
+            fromPhone={
+              selected.from_phone
+            }
+            toPhone={
+              selected.to_phone
+            }
+            contactName={
+              selected.contact_name
+            }
+            contactPhone={
+              selected.contact_phone
+            }
+            onStateChange={(
+              state,
+            ) =>
+              handleStateChange(
+                selected.id,
+                state,
+              )
+            }
+          />
+        </div>
+      </div>
+    </div>
+  );
+}

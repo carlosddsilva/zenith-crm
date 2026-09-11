@@ -137,6 +137,20 @@ export async function POST(req: Request) {
       account_id: deal.accountId,
     };
 
+    // Publish Automation Events
+    try {
+      const { publishEvent } = await import('@/lib/events/bus');
+      publishEvent({
+        accountId,
+        triggerType: 'deal.created',
+        entityType: 'deal',
+        entityId: deal.id,
+        payload: { deal },
+      });
+    } catch (evtErr) {
+      console.error('[EventBus] Failed to publish deal.created:', evtErr);
+    }
+
     return NextResponse.json(dealRow);
   } catch (error: any) {
     if (error.message === "Unauthorized") {
