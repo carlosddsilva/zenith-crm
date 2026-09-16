@@ -3,6 +3,7 @@ import { db } from '@/lib/db/client';
 import { pipelines } from '@/lib/db/schema/pipeline';
 import { eq, desc } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 
 export async function GET(req: Request) {
   try {
@@ -15,15 +16,8 @@ export async function GET(req: Request) {
       .orderBy(desc(pipelines.createdAt));
 
     return NextResponse.json(allPipelines);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[GET /api/zenith/pipelines]', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[GET /api/zenith/pipelines]');
   }
 }
 
@@ -49,14 +43,7 @@ export async function POST(req: Request) {
       .returning();
 
     return NextResponse.json(pipeline);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[POST /api/zenith/pipelines]', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[POST /api/zenith/pipelines]');
   }
 }

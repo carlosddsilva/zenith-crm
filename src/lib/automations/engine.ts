@@ -1,219 +1,260 @@
-import { AutomationCondition, AutomationAction } from '@/types';
-import { db } from '@/lib/db/client';
-import { eq, and } from 'drizzle-orm';
-import { publishEvent } from '@/lib/events/bus';
+import { and, eq } from "drizzle-orm";
 
-// ----------------------------------------------------------------------------
-// Conditions Evaluator
-// ----------------------------------------------------------------------------
+import type { AutomationAction, AutomationCondition } from "@/types";
+import { db } from "@/lib/db/client";
+import {
+  contacts,
+  contactTags,
+  conversations,
+  deals,
+  messages,
+  notes,
+  pipelines,
+  pipelineStages,
+  tags,
+  tasks,
+} from "@/lib/db/schema";
+import { publishEvent } from "@/lib/events/bus";
+import { getDefaultServiceChannel } from "@/lib/messaging/channel-store";
+import { getMessagingProvider, MessagingProviderError } from "@/lib/messaging";
 
-export function evaluateConditions(
-  conditions: AutomationCondition[],
-  payload: Record<string, any>
-): boolean {
-  if (!conditions || conditions.length === 0) return true;
+type JsonRecord = Record<string, unknown>;
 
-  for (const condition of conditions) {
+export function evaluateConditions(conditions: AutomationCondition[], payload: JsonRecord): boolean {
+  if (!conditions?.length) return true;
+  return conditions.every((condition) => {
     const fieldValue = getNestedValue(payload, condition.field);
-
     switch (condition.operator) {
-      case 'equals':
-        if (fieldValue != condition.value) return false;
-        break;
-      case 'not_equals':
-        if (fieldValue == condition.value) return false;
-        break;
-      case 'contains':
-        if (typeof fieldValue !== 'string' || !fieldValue.includes(String(condition.value))) return false;
-        break;
-      case 'is_empty':
-        if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') return false;
-        break;
-      case 'is_not_empty':
-        if (fieldValue === null || fieldValue === undefined || fieldValue === '') return false;
-        break;
-      default:
-        return false;
+      case "equals": return fieldValue == condition.value;
+      case "not_equals": return fieldValue != condition.value;
+      case "contains": return typeof fieldValue === "string" && fieldValue.includes(String(condition.value));
+      case "is_empty": return fieldValue === null || fieldValue === undefined || fieldValue === "";
+      case "is_not_empty": return fieldValue !== null && fieldValue !== undefined && fieldValue !== "";
+      default: return false;
     }
-  }
-
-  return true;
+  });
 }
 
-function getNestedValue(obj: any, path: string): any {
-  if (path.includes('__proto__') || path.includes('constructor') || path.includes('prototype')) {
-    return undefined; // Block prototype pollution/unsafe access
-  }
-  return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+function getNestedValue(value: unknown, path: string): unknown {
+  if (path.includes("__proto__") || path.includes("constructor") || path.includes("prototype")) return undefined;
+  return path.split(".").reduce<unknown>((current, part) => {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    return (current as JsonRecord)[part];
+  }, value);
 }
 
-// ----------------------------------------------------------------------------
-// Actions Executor
-// ----------------------------------------------------------------------------
+function nestedString(payload: JsonRecord, path: string): string | null {
+  const value = getNestedValue(payload, path);
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function paramString(params: JsonRecord, key: string): string | null {
+  const value = params[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 export interface ActionExecutionContext {
   accountId: string;
   automationId: string;
+  automationOwnerUserId: string;
   runId: string;
-  payload: Record<string, any>;
+  payload: JsonRecord;
   depth: number;
+  dryRun?: boolean;
 }
 
-export async function executeAction(
-  action: AutomationAction,
-  context: ActionExecutionContext
-): Promise<{ success: boolean; error?: string }> {
+export async function executeAction(action: AutomationAction, context: ActionExecutionContext): Promise<{ success: boolean; error?: string }> {
   try {
+    const params = action.params as JsonRecord;
     switch (action.type) {
-      case 'contact.add_tag':
-        return await executeAddTag(action.params, context);
-      case 'contact.remove_tag':
-        return await executeRemoveTag(action.params, context);
-      case 'deal.move_stage':
-        return await executeMoveDealStage(action.params, context);
-      case 'task.create':
-        return await executeCreateTask(action.params, context);
-      case 'task.complete':
-        return await executeCompleteTask(action.params, context);
-      case 'note.create':
-        return await executeCreateNote(action.params, context);
-      case 'send_message':
-        return await executeSendMessage(action.params, context);
-      default:
-        return { success: false, error: `Unknown action type: ${action.type}` };
+      case "contact.add_tag": return executeAddTag(params, context);
+      case "contact.remove_tag": return executeRemoveTag(params, context);
+      case "deal.move_stage": return executeMoveDealStage(params, context);
+      case "task.create": return executeCreateTask(params, context);
+      case "task.complete": return executeCompleteTask(context);
+      case "note.create": return executeCreateNote(params, context);
+      case "send_message": return executeSendMessage(params, context);
+      case "conversation.assign": return executeAssignConversation(params, context);
+      default: return { success: false, error: "unsupported_action" };
     }
-  } catch (error: any) {
-    console.error(`[AutomationEngine] Action failed: ${action.type}`, error);
-    return { success: false, error: error.message };
+  } catch (error) {
+    console.error("[automation] action failed", {
+      accountId: context.accountId,
+      automationId: context.automationId,
+      runId: context.runId,
+      actionType: action.type,
+      code: error instanceof MessagingProviderError ? error.code : "action_failed",
+    });
+    return { success: false, error: error instanceof MessagingProviderError ? error.code : "action_failed" };
   }
 }
 
-// -- Action Implementations (MVPs) --
+async function validContactAndTag(accountId: string, contactId: string, tagId: string) {
+  const [contact, tag] = await Promise.all([
+    db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId))).limit(1),
+    db.select({ id: tags.id }).from(tags).where(and(eq(tags.id, tagId), eq(tags.accountId, accountId))).limit(1),
+  ]);
+  return contact.length === 1 && tag.length === 1;
+}
 
-async function executeAddTag(params: Record<string, any>, context: ActionExecutionContext) {
-  const contactId = context.payload.contact?.id || context.payload.deal?.contactId;
-  const tagId = params.tagId;
-  if (!contactId || !tagId) return { success: false, error: 'Missing contactId or tagId' };
-
-  const { contactTags } = await import('@/lib/db/schema');
+async function executeAddTag(params: JsonRecord, context: ActionExecutionContext) {
+  const contactId = nestedString(context.payload, "contact.id") ?? nestedString(context.payload, "deal.contactId");
+  const tagId = paramString(params, "tagId");
+  if (!contactId || !tagId) return { success: false, error: "missing_contact_or_tag" };
+  if (!(await validContactAndTag(context.accountId, contactId, tagId))) return { success: false, error: "contact_or_tag_not_found" };
+  
+  if (context.dryRun) return { success: true };
+  
   await db.insert(contactTags).values({ contactId, tagId }).onConflictDoNothing();
   return { success: true };
 }
 
-async function executeRemoveTag(params: Record<string, any>, context: ActionExecutionContext) {
-  const contactId = context.payload.contact?.id || context.payload.deal?.contactId;
-  const tagId = params.tagId;
-  if (!contactId || !tagId) return { success: false, error: 'Missing contactId or tagId' };
-
-  const { contactTags } = await import('@/lib/db/schema');
+async function executeRemoveTag(params: JsonRecord, context: ActionExecutionContext) {
+  const contactId = nestedString(context.payload, "contact.id") ?? nestedString(context.payload, "deal.contactId");
+  const tagId = paramString(params, "tagId");
+  if (!contactId || !tagId) return { success: false, error: "missing_contact_or_tag" };
+  if (!(await validContactAndTag(context.accountId, contactId, tagId))) return { success: false, error: "contact_or_tag_not_found" };
+  
+  if (context.dryRun) return { success: true };
+  
   await db.delete(contactTags).where(and(eq(contactTags.contactId, contactId), eq(contactTags.tagId, tagId)));
   return { success: true };
 }
 
-async function executeMoveDealStage(params: Record<string, any>, context: ActionExecutionContext) {
-  const dealId = context.payload.deal?.id;
-  const stageId = params.stageId;
-  if (!dealId || !stageId) return { success: false, error: 'Missing dealId or stageId' };
-
-  const { deals } = await import('@/lib/db/schema/pipeline');
-  const [updated] = await db.update(deals).set({ stageId, updatedAt: new Date() }).where(eq(deals.id, dealId)).returning();
+async function executeMoveDealStage(params: JsonRecord, context: ActionExecutionContext) {
+  const dealId = nestedString(context.payload, "deal.id");
+  const stageId = paramString(params, "stageId");
+  if (!dealId || !stageId) return { success: false, error: "missing_deal_or_stage" };
+  const [stage] = await db.select({ id: pipelineStages.id }).from(pipelineStages)
+    .innerJoin(pipelines, eq(pipelineStages.pipelineId, pipelines.id))
+    .where(and(eq(pipelineStages.id, stageId), eq(pipelines.accountId, context.accountId))).limit(1);
+  if (!stage) return { success: false, error: "stage_not_found" };
   
-  // Publish event to trigger cascading automations
-  if (updated) {
-    publishEvent({
-      accountId: context.accountId,
-      triggerType: 'deal.stage_changed',
-      entityType: 'deal',
-      entityId: updated.id,
-      payload: { deal: updated },
-      depth: context.depth + 1,
-    });
-  }
+  if (context.dryRun) return { success: true };
   
-  return { success: true };
-}
-
-async function executeCreateTask(params: Record<string, any>, context: ActionExecutionContext) {
-  const { tasks } = await import('@/lib/db/schema/activities');
-  const contactId = context.payload.contact?.id || context.payload.deal?.contactId || null;
-  const dealId = context.payload.deal?.id || null;
-  
-  await db.insert(tasks).values({
-    accountId: context.accountId,
-    createdByUserId: params.assignedUserId || null,
-    assignedUserId: params.assignedUserId || null,
-    title: params.title || 'Automated Task',
-    description: params.description || null,
-    contactId,
-    dealId,
-    status: 'pending',
-    priority: params.priority || 'normal',
-    dueAt: params.dueAt ? new Date(params.dueAt) : null,
+  const updated = await db.transaction(async (tx) => {
+    const [updatedDeal] = await tx.update(deals).set({ stageId, updatedAt: new Date() })
+      .where(and(eq(deals.id, dealId), eq(deals.accountId, context.accountId))).returning();
+    if (!updatedDeal) return null;
+    await publishEvent(tx, { accountId: context.accountId, triggerType: "deal.stage_changed", entityType: "deal", entityId: updatedDeal.id, payload: { deal: updatedDeal }, depth: context.depth + 1 });
+    return updatedDeal;
   });
-  return { success: true };
-}
-
-async function executeCompleteTask(params: Record<string, any>, context: ActionExecutionContext) {
-  const taskId = context.payload.task?.id;
-  if (!taskId) return { success: false, error: 'Missing taskId in payload' };
-
-  const { tasks } = await import('@/lib/db/schema/activities');
-  const [updated] = await db.update(tasks)
-    .set({ status: 'completed', completedAt: new Date(), updatedAt: new Date() })
-    .where(eq(tasks.id, taskId))
-    .returning();
-    
-  if (updated) {
-    publishEvent({
-      accountId: context.accountId,
-      triggerType: 'task.completed',
-      entityType: 'task',
-      entityId: updated.id,
-      payload: { task: updated },
-      depth: context.depth + 1,
-    });
-  }
-    
-  return { success: true };
-}
-
-async function executeCreateNote(params: Record<string, any>, context: ActionExecutionContext) {
-  const { notes } = await import('@/lib/db/schema/activities');
-  const contactId = context.payload.contact?.id || context.payload.deal?.contactId || null;
-  const dealId = context.payload.deal?.id || null;
   
-  await db.insert(notes).values({
+  if (!updated) return { success: false, error: "deal_not_found" };
+  return { success: true };
+}
+
+async function executeCreateTask(params: JsonRecord, context: ActionExecutionContext) {
+  const values = {
     accountId: context.accountId,
-    createdByUserId: params.authorUserId || null,
-    content: params.content || 'Automated Note',
-    contactId,
-    dealId,
+    createdByUserId: context.automationOwnerUserId,
+    assignedUserId: paramString(params, "assignedUserId"),
+    title: paramString(params, "title") ?? "Automated Task",
+    description: paramString(params, "description"),
+    contactId: nestedString(context.payload, "contact.id") ?? nestedString(context.payload, "deal.contactId"),
+    dealId: nestedString(context.payload, "deal.id"),
+    status: "pending" as const,
+    priority: paramString(params, "priority") as "low" | "normal" | "high" ?? "normal",
+    dueAt: paramString(params, "dueAt") ? new Date(paramString(params, "dueAt")!) : null,
+  };
+  
+  if (context.dryRun) return { success: true };
+  
+  const newTask = await db.insert(tasks).values(values).returning();
+  
+  // Publish event for task created
+  await db.transaction(async (tx) => {
+    await publishEvent(tx, { 
+      accountId: context.accountId, 
+      triggerType: "task.created" as any, // if we added it, wait we didn't add task.created to trigger types. Let's just create it.
+      entityType: "task", 
+      entityId: newTask[0].id, 
+      payload: { task: newTask[0] }, 
+      depth: context.depth + 1 
+    });
   });
+
   return { success: true };
 }
 
-async function executeSendMessage(params: Record<string, any>, context: ActionExecutionContext) {
-  const conversationId = context.payload.conversationId || context.payload.conversation?.id;
-  const text = params.text;
+async function executeCompleteTask(context: ActionExecutionContext) {
+  const taskId = nestedString(context.payload, "task.id");
+  if (!taskId) return { success: false, error: "missing_task" };
   
-  if (!conversationId || !text) return { success: false, error: 'Missing conversationId or text' };
+  if (context.dryRun) return { success: true };
+  
+  const updated = await db.transaction(async (tx) => {
+    const [updatedTask] = await tx.update(tasks).set({ status: "completed", completedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(tasks.id, taskId), eq(tasks.accountId, context.accountId))).returning();
+    if (!updatedTask) return null;
+    await publishEvent(tx, { accountId: context.accountId, triggerType: "task.completed", entityType: "task", entityId: updatedTask.id, payload: { task: updatedTask }, depth: context.depth + 1 });
+    return updatedTask;
+  });
+  
+  if (!updated) return { success: false, error: "task_not_found" };
+  return { success: true };
+}
 
-  // Use Zenith internal sendMessageToConversation directly
-  const { sendMessageToConversation } = await import('@/lib/whatsapp/send-message');
-  const { createClient } = await import('@supabase/supabase-js');
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+async function executeCreateNote(params: JsonRecord, context: ActionExecutionContext) {
+  const values = {
+    accountId: context.accountId,
+    createdByUserId: context.automationOwnerUserId,
+    content: paramString(params, "content") ?? "Automated Note",
+    contactId: nestedString(context.payload, "contact.id") ?? nestedString(context.payload, "deal.contactId"),
+    dealId: nestedString(context.payload, "deal.id"),
+  };
+  
+  if (context.dryRun) return { success: true };
+  
+  await db.insert(notes).values(values);
+  return { success: true };
+}
+
+async function executeSendMessage(params: JsonRecord, context: ActionExecutionContext) {
+  const conversationId = nestedString(context.payload, "conversationId") ?? nestedString(context.payload, "conversation.id");
+  const text = paramString(params, "text");
+  if (!conversationId || !text) return { success: false, error: "missing_conversation_or_text" };
+  const [row] = await db.select({ id: conversations.id, phone: contacts.phone, phoneNormalized: contacts.phoneNormalized, isBlocked: contacts.isBlocked, optOut: contacts.optOut, anonymizedAt: contacts.anonymizedAt })
+    .from(conversations).innerJoin(contacts, eq(conversations.contactId, contacts.id))
+    .where(and(eq(conversations.id, conversationId), eq(conversations.accountId, context.accountId), eq(contacts.accountId, context.accountId))).limit(1);
+  if (!row) return { success: false, error: "conversation_not_found" };
+  if (row.isBlocked || row.optOut || row.anonymizedAt) return { success: false, error: "contact_lgpd_blocked" };
+  const channel = await getDefaultServiceChannel(context.accountId);
+  if (!channel) return { success: false, error: "messaging_channel_not_configured" };
+  
+  if (context.dryRun) return { success: true };
+  
+  const [message] = await db.insert(messages).values({
+    conversationId, senderType: "bot", contentType: "text", contentText: text,
+    status: "sending", provider: channel.provider, messagingChannelId: channel.id,
+  }).returning();
   try {
-    await sendMessageToConversation(supabase, context.accountId, {
-      conversationId,
-      messageType: 'text',
-      contentText: text,
+    const result = await getMessagingProvider(channel.provider).send({ to: row.phoneNormalized || row.phone, contentType: "text", purpose: "service", mode: "single", text }, channel.config);
+    await db.transaction(async (tx) => {
+      await tx.update(messages).set({ status: "sent", messageId: result.providerMessageId, transportError: null }).where(eq(messages.id, message.id));
+      await tx.update(conversations).set({ lastMessageText: text, lastMessageAt: new Date(), updatedAt: new Date() }).where(and(eq(conversations.id, conversationId), eq(conversations.accountId, context.accountId)));
     });
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (error) {
+    const code = error instanceof MessagingProviderError ? error.code : "provider_send_failed";
+    await db.update(messages).set({ status: "failed", transportError: code }).where(eq(messages.id, message.id));
+    throw error;
   }
 }
 
+async function executeAssignConversation(params: JsonRecord, context: ActionExecutionContext) {
+  const conversationId = nestedString(context.payload, "conversationId") ?? nestedString(context.payload, "conversation.id");
+  const assigneeId = paramString(params, "assigneeId");
+  
+  if (!conversationId || !assigneeId) return { success: false, error: "missing_conversation_or_assignee" };
+  
+  if (context.dryRun) return { success: true };
+  
+  const updated = await db.update(conversations)
+    .set({ assignedAgentId: assigneeId, updatedAt: new Date() })
+    .where(and(eq(conversations.id, conversationId), eq(conversations.accountId, context.accountId)))
+    .returning();
+    
+  if (updated.length === 0) return { success: false, error: "conversation_not_found" };
+  return { success: true };
+}

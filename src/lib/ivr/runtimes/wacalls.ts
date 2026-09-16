@@ -25,28 +25,13 @@ import {
 } from "@/lib/db/schema";
 
 import {
+  and,
   eq,
 } from "drizzle-orm";
 
 import type {
   IvrFlowNode,
 } from "../types";
-
-function textConfig(
-  node:
-    IvrFlowNode,
-
-  key:
-    string,
-) {
-  const value =
-    node.data[key];
-
-  return typeof value ===
-    "string"
-    ? value.trim()
-    : "";
-}
 
 async function executeAnswer(
   context:
@@ -82,78 +67,14 @@ async function executeAudio(
 ): Promise<
   IvrRuntimeResult
 > {
-  if (
-    !waCallsVoiceProvider
-      .playAudio
-  ) {
-    throw new IvrRuntimeError(
-      "wacalls_playback_not_implemented",
-      "Playback de audio nao esta implementado no provider WaCalls.",
-      501,
-    );
-  }
+  void context;
+  void node;
 
-  const audioUrl =
-    textConfig(
-      node,
-      "audioUrl",
-    );
-
-  if (!audioUrl) {
-    /*
-     * Mais adiante audioAssetId sera
-     * resolvido pela biblioteca de midia.
-     *
-     * Neste momento o runtime exige
-     * uma URL HTTP(S) efetiva.
-     */
-    throw new IvrRuntimeError(
-      "ivr_audio_url_required",
-      "O bloco Audio nao possui URL de playback.",
-      422,
-    );
-  }
-
-  const playbackId =
-    `ivr-${context.executionId}-${node.id}-${context.stepSequence}`;
-
-  const result =
-    await waCallsVoiceProvider
-      .playAudio(
-        {
-          providerCallId:
-            context.providerCallId,
-
-          clientId:
-            context.clientId,
-
-          audioUrl,
-
-          playbackId,
-        },
-
-        context.providerConfig,
-      );
-
-  return {
-    /*
-     * O POST inicia o playback.
-     *
-     * O IVR Engine completo aguardara
-     * playback.completed via evento
-     * antes de seguir para o proximo node.
-     */
-    status:
-      "waiting",
-
-    output: {
-      playbackId:
-        result.playbackId,
-
-      waitForEvent:
-        "playback.completed",
-    },
-  };
+  throw new IvrRuntimeError(
+    "wacalls_playback_unsupported",
+    "Playback de audio nao e suportado pelo gateway WaCalls atual.",
+    501,
+  );
 }
 
 async function executeHangup(
@@ -213,9 +134,16 @@ async function executeQueueRoute(
       })
       .from(calls)
       .where(
-        eq(
-          calls.id,
-          context.callId,
+        and(
+          eq(
+            calls.id,
+            context.callId,
+          ),
+
+          eq(
+            calls.accountId,
+            context.accountId,
+          ),
         ),
       )
       .limit(1);

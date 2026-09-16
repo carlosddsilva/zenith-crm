@@ -3,12 +3,17 @@ import { db } from '@/lib/db/client';
 import { automations } from '@/lib/db/schema/automations';
 import { eq, and } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 import { updateAutomationSchema } from '@/lib/automations/schema';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
-export async function GET(req: Request, { params }: any) {
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const { accountId } = await requireZenithRole('agent');
-    const { id } = params;
+    const { id } = await params;
 
     const [automation] = await db.select()
       .from(automations)
@@ -19,19 +24,23 @@ export async function GET(req: Request, { params }: any) {
     }
 
     return NextResponse.json(automation);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[GET /api/zenith/automations/[id]]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[GET /api/zenith/automations/[id]]');
   }
 }
 
-export async function PATCH(req: Request, { params }: any) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
-    const { accountId } = await requireZenithRole('admin');
-    const { id } = params;
+    const { accountId, userId } = await requireZenithRole('admin');
+    const rateLimit = checkRateLimit(
+      `automation-update:${accountId}:${userId}`,
+      RATE_LIMITS.adminAction,
+    );
+    if (!rateLimit.success) return rateLimitResponse(rateLimit);
+    const { id } = await params;
     const body = await req.json();
 
     const parsed = updateAutomationSchema.safeParse(body);
@@ -68,23 +77,22 @@ export async function PATCH(req: Request, { params }: any) {
 
     const [updated] = await db.update(automations)
       .set(updateData)
-      .where(eq(automations.id, id))
+      .where(and(eq(automations.id, id), eq(automations.accountId, accountId)))
       .returning();
 
     return NextResponse.json(updated);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[PATCH /api/zenith/automations/[id]]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[PATCH /api/zenith/automations/[id]]');
   }
 }
 
-export async function DELETE(req: Request, { params }: any) {
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const { accountId } = await requireZenithRole('admin');
-    const { id } = params;
+    const { id } = await params;
 
     const [deleted] = await db.delete(automations)
       .where(and(eq(automations.id, id), eq(automations.accountId, accountId)))
@@ -95,11 +103,7 @@ export async function DELETE(req: Request, { params }: any) {
     }
 
     return NextResponse.json({ success: true, id: deleted.id });
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[DELETE /api/zenith/automations/[id]]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[DELETE /api/zenith/automations/[id]]');
   }
 }

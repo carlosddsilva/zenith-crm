@@ -114,9 +114,15 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
 
 /** Preconfigured budgets, tweak here not at call sites. */
 export const RATE_LIMITS = {
+  /** Password login attempts, keyed by source IP. */
+  login: { limit: 10, windowMs: 15 * 60_000 },
+  /** Bulk contact imports, keyed by account and user. */
+  contactsBulk: { limit: 10, windowMs: 60_000 },
   /** Individual message send. 60/min per user = one per second
    *  sustained, comfortable for a live human typing. */
   send: { limit: 60, windowMs: 60_000 },
+  /** Outbound call attempts, keyed by account and user. */
+  call: { limit: 20, windowMs: 60_000 },
   /** Broadcast dispatch. NOT one call per campaign: the wizard fans a
    *  campaign out over `/api/whatsapp/broadcast` in batches of 10
    *  recipients, roughly one call every 1–2 s, so a 1 000-recipient

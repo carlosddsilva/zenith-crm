@@ -3,14 +3,16 @@ import { db } from '@/lib/db/client';
 import { deals } from '@/lib/db/schema/pipeline';
 import { eq, and } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
+import { validateDealRelations } from '@/lib/deals/relations';
 
 export async function PATCH(
   req: Request,
-  { params }: any
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { accountId, userId } = await requireZenithRole('agent');
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json(
@@ -56,21 +58,36 @@ export async function PATCH(
       }
     }
 
-    const txResult = await db.transaction(async (tx) => {
-      const [existingDeal] = await tx
-        .select()
-        .from(deals)
-        .where(and(eq(deals.id, id), eq(deals.accountId, accountId)));
+    const [existingDeal] = await db
+      .select()
+      .from(deals)
+      .where(and(eq(deals.id, id), eq(deals.accountId, accountId)))
+      .limit(1);
 
-      if (!existingDeal) {
-        return null;
-      }
+    if (!existingDeal) {
+      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
+    }
+
+    const relationError = await validateDealRelations(accountId, {
+      pipelineId: updateData.pipelineId ?? existingDeal.pipelineId,
+      stageId: updateData.stageId ?? existingDeal.stageId,
+      contactId: updateData.contactId !== undefined ? updateData.contactId : existingDeal.contactId,
+      companyId: updateData.companyId !== undefined ? updateData.companyId : existingDeal.companyId,
+      assignedTo: updateData.assignedTo !== undefined ? updateData.assignedTo : existingDeal.assignedTo,
+    });
+    if (relationError) {
+      return NextResponse.json({ error: relationError }, { status: 400 });
+    }
+
+    const txResult = await db.transaction(async (tx) => {
 
       const [updated] = await tx
         .update(deals)
         .set(updateData)
-        .where(eq(deals.id, id))
+        .where(and(eq(deals.id, id), eq(deals.accountId, accountId)))
         .returning();
+
+      if (!updated) return null;
 
       const { activities } = await import('@/lib/db/schema/activities');
 
@@ -112,11 +129,38 @@ export async function PATCH(
         }
       }
 
-      return { updated, changes: {
-        stageChanged: updateData.stageId && updateData.stageId !== existingDeal.stageId,
-        won: updateData.status === 'won' && existingDeal.status !== 'won',
-        lost: updateData.status === 'lost' && existingDeal.status !== 'lost',
-      } };
+      const { publishEvent } = await import('@/lib/events/bus');
+      if (updateData.stageId && updateData.stageId !== existingDeal.stageId) {
+        await publishEvent(tx, {
+          accountId,
+          triggerType: 'deal.stage_changed',
+          entityType: 'deal',
+          entityId: updated.id,
+          payload: { deal: updated },
+        });
+      }
+      
+      if (updateData.status === 'won' && existingDeal.status !== 'won') {
+        await publishEvent(tx, {
+          accountId,
+          triggerType: 'deal.won',
+          entityType: 'deal',
+          entityId: updated.id,
+          payload: { deal: updated },
+        });
+      }
+      
+      if (updateData.status === 'lost' && existingDeal.status !== 'lost') {
+        await publishEvent(tx, {
+          accountId,
+          triggerType: 'deal.lost',
+          entityType: 'deal',
+          entityId: updated.id,
+          payload: { deal: updated },
+        });
+      }
+
+      return { updated, changes: {} }; // changes no longer needed outside
     });
 
     if (!txResult) {
@@ -140,60 +184,19 @@ export async function PATCH(
       account_id: result.accountId,
     };
 
-    // Publish Automation Events outside transaction
-    try {
-      const { publishEvent } = await import('@/lib/events/bus');
-      if (txResult.changes.stageChanged) {
-        publishEvent({
-          accountId,
-          triggerType: 'deal.stage_changed',
-          entityType: 'deal',
-          entityId: result.id,
-          payload: { deal: result },
-        });
-      }
-      if (txResult.changes.won) {
-        publishEvent({
-          accountId,
-          triggerType: 'deal.won',
-          entityType: 'deal',
-          entityId: result.id,
-          payload: { deal: result },
-        });
-      }
-      if (txResult.changes.lost) {
-        publishEvent({
-          accountId,
-          triggerType: 'deal.lost',
-          entityType: 'deal',
-          entityId: result.id,
-          payload: { deal: result },
-        });
-      }
-    } catch (evtErr) {
-      console.error('[EventBus] Failed to publish deal events:', evtErr);
-    }
-
     return NextResponse.json(dealRow);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[PATCH /api/zenith/deals/[id]]', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[PATCH /api/zenith/deals/[id]]');
   }
 }
 
 export async function DELETE(
-  req: Request,
-  { params }: any
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { accountId } = await requireZenithRole('admin'); // Maybe admin only to delete deals
-    const { id } = params;
+    const { id } = await params;
 
     const [deleted] = await db
       .delete(deals)
@@ -205,14 +208,7 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true, id: deleted.id });
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[DELETE /api/zenith/deals/[id]]', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[DELETE /api/zenith/deals/[id]]');
   }
 }

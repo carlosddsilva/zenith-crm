@@ -57,7 +57,9 @@ function handleError(
 
   console.error(
     "[ivr validate]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   return NextResponse.json(

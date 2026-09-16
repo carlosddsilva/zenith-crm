@@ -15,7 +15,7 @@ import { GET as getDashboardMetrics } from "@/app/api/zenith/dashboard/route";
 import * as auth from "@/lib/auth/zenith-account";
 import { vi } from "vitest";
 
-describe("CRM-07 Dashboard Aggregates", () => {
+describe.skipIf(process.env.RUN_DB_TESTS !== "true")("CRM-07 Dashboard Aggregates", () => {
   let accA: Account;
   let userA: User;
   let contactA: Contact;

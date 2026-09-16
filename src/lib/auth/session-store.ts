@@ -1,10 +1,13 @@
-﻿import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { authSessions, users } from "@/lib/db/schema";
 
-const sessionDays = Number(process.env.AUTH_SESSION_DAYS ?? "30");
+const requestedSessionDays = Number(process.env.AUTH_SESSION_DAYS ?? "30");
+const sessionDays = Number.isFinite(requestedSessionDays)
+  ? Math.min(Math.max(Math.floor(requestedSessionDays), 1), 90)
+  : 30;
 
 function hashSessionToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -47,6 +50,7 @@ export async function getSessionByToken(token: string) {
       email: users.email,
       name: users.name,
       status: users.status,
+      systemRole: users.systemRole,
     })
     .from(authSessions)
     .innerJoin(users, eq(authSessions.userId, users.id))

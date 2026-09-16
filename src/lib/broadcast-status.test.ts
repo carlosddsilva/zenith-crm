@@ -8,14 +8,14 @@ import {
 
 describe("getBroadcastStatus", () => {
   it("returns the matching config for known statuses", () => {
-    expect(getBroadcastStatus("sending")).toBe(broadcastStatusConfig.sending);
-    expect(getBroadcastStatus("sent")).toBe(broadcastStatusConfig.sent);
+    expect(getBroadcastStatus("running")).toBe(broadcastStatusConfig.running);
+    expect(getBroadcastStatus("completed")).toBe(broadcastStatusConfig.completed);
     expect(getBroadcastStatus("failed")).toBe(broadcastStatusConfig.failed);
   });
 
-  it("flags `sending` as a live/pulsing state", () => {
-    expect(getBroadcastStatus("sending").pulse).toBe(true);
-    expect(getBroadcastStatus("sent").pulse).toBeFalsy();
+  it("flags `running` as a live/pulsing state", () => {
+    expect(getBroadcastStatus("running").pulse).toBe(true);
+    expect(getBroadcastStatus("completed").pulse).toBeFalsy();
   });
 
   it("falls back to draft on an unknown status string", () => {

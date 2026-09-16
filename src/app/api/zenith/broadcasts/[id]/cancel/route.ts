@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { broadcasts, broadcastRecipients } from "@/lib/db/schema";
 import { requireZenithRole } from "@/lib/auth/zenith-account";
+import { apiErrorResponse } from "@/lib/api/error-response";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +38,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[api] broadcasts/[id]/cancel POST error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, "[api] broadcasts/[id]/cancel POST error");
   }
 }

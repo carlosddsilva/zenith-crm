@@ -1,4 +1,4 @@
-﻿import { eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { getCurrentUser } from "./current-user";
 import {
@@ -11,6 +11,7 @@ import { db } from "@/lib/db/client";
 import {
   accountMembers,
   accounts,
+  plans,
 } from "@/lib/db/schema";
 
 export class ZenithUnauthorizedError extends Error {
@@ -38,11 +39,14 @@ export interface ZenithAccountContext {
 
   accountId: string;
   role: AccountRole;
+  isSuspended: boolean;
+  systemRole: "user" | "superadmin";
 
   account: {
     id: string;
     name: string;
     defaultCurrency: string;
+    planId: string | null;
   };
 }
 
@@ -61,6 +65,7 @@ Promise<ZenithAccountContext> {
       accountName: accounts.name,
       accountStatus: accounts.status,
       defaultCurrency: accounts.defaultCurrency,
+      planId: accounts.planId,
     })
     .from(accountMembers)
     .innerJoin(
@@ -84,9 +89,9 @@ Promise<ZenithAccountContext> {
 
   const membership = rows[0];
 
-  if (membership.accountStatus !== "active") {
+  if (membership.accountStatus === "disabled") {
     throw new ZenithForbiddenError(
-      "Empresa não está ativa.",
+      "Empresa está desativada.",
     );
   }
 
@@ -100,15 +105,18 @@ Promise<ZenithAccountContext> {
     userId: user.userId,
     email: user.email,
     name: user.name,
+    systemRole: user.systemRole,
 
     accountId: membership.accountId,
     role: membership.role,
+    isSuspended: membership.accountStatus === "suspended",
 
     account: {
       id: membership.accountId,
       name: membership.accountName,
       defaultCurrency:
         membership.defaultCurrency ?? "BRL",
+      planId: membership.planId,
     },
   };
 }
@@ -124,5 +132,37 @@ export async function requireZenithRole(
     );
   }
 
+  if (minimumRole !== "viewer" && context.isSuspended) {
+    throw new ZenithForbiddenError(
+      "Sua empresa está suspensa. Operações de gravação bloqueadas.",
+    );
+  }
+
   return context;
+}
+
+export async function requireActiveAccount() {
+  const context = await getZenithAccountContext();
+
+  if (context.isSuspended) {
+    throw new ZenithForbiddenError(
+      "Sua empresa está suspensa. Operações de gravação bloqueadas.",
+    );
+  }
+
+  return context;
+}
+
+export async function requireSuperadmin() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    throw new ZenithUnauthorizedError();
+  }
+
+  if (user.systemRole !== "superadmin") {
+    throw new ZenithForbiddenError("Acesso negado. Apenas superadmins podem acessar esta área.");
+  }
+
+  return user;
 }

@@ -1,4 +1,4 @@
-﻿import { sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 import {
   AnyPgColumn,
@@ -28,6 +28,16 @@ export const conversationStatusEnum =
       "open",
       "pending",
       "closed",
+    ],
+  );
+
+export const conversationSlaStatusEnum =
+  pgEnum(
+    "conversation_sla_status",
+    [
+      "ok",
+      "warning",
+      "overdue",
     ],
   );
 
@@ -135,6 +145,26 @@ export const conversations =
 
       aiHandoffSummary:
         text("ai_handoff_summary"),
+
+      firstUnrepliedMessageAt: timestamp(
+        "first_unreplied_message_at",
+        {
+          withTimezone: true,
+        },
+      ),
+
+      slaStatus: conversationSlaStatusEnum("sla_status")
+        .notNull()
+        .default("ok"),
+
+      slaPolicyId: uuid("sla_policy_id"),
+
+      lastSlaBreachAt: timestamp(
+        "last_sla_breach_at",
+        {
+          withTimezone: true,
+        },
+      ),
 
       createdAt: timestamp(
         "created_at",
@@ -293,6 +323,8 @@ export const messages =
         .notNull()
         .default(false),
 
+      aiRunId: uuid("ai_run_id"),
+
       createdAt: timestamp(
         "created_at",
         {
@@ -344,6 +376,12 @@ export const messages =
       ).on(
         table.replyToMessageId,
       ),
+
+      uniqueIndex(
+        "messages_ai_run_uidx",
+      )
+        .on(table.aiRunId)
+        .where(sql`${table.aiRunId} IS NOT NULL`),
     ],
   );
 

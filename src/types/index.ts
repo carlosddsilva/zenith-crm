@@ -421,8 +421,22 @@ export interface Deal {
   assignee?: Profile | null;
 }
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
-export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
+export type BroadcastStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'running'
+  | 'completed'
+  | 'cancelled'
+  | 'failed';
+export type RecipientStatus =
+  | 'pending'
+  | 'processing'
+  | 'sent'
+  | 'delivered'
+  | 'read'
+  | 'replied'
+  | 'failed'
+  | 'cancelled';
 
 export interface Broadcast {
   id: string;
@@ -503,7 +517,9 @@ export type AutomationTriggerType =
   | 'deal.lost'
   | 'task.completed'
   | 'conversation.created'
-  | 'message.received';
+  | 'message.received'
+  | 'conversation.sla_started'
+  | 'conversation.sla_breached';
 
 export type AutomationConditionOperator =
   | 'equals'
@@ -525,7 +541,8 @@ export type AutomationActionType =
   | 'task.create'
   | 'task.complete'
   | 'note.create'
-  | 'send_message';
+  | 'send_message'
+  | 'conversation.assign';
 
 export interface AutomationAction {
   type: AutomationActionType;

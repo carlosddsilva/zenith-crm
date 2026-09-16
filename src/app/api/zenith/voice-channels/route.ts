@@ -11,6 +11,8 @@ import {
   requireZenithRole,
 } from "@/lib/auth/zenith-account";
 
+import { apiErrorResponse } from "@/lib/api/error-response";
+
 import {
   db,
 } from "@/lib/db/client";
@@ -26,9 +28,15 @@ import {
 function handleError(
   error: unknown,
 ) {
+  if (typeof error === "object" && error !== null && "status" in error) {
+    return apiErrorResponse(error, "[voice channels]");
+  }
+
   console.error(
     "[voice channels]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   const code =
@@ -58,10 +66,7 @@ function handleError(
 
   return NextResponse.json(
     {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Internal server error",
+      error: "Internal server error",
     },
     {
       status: 500,

@@ -1,41 +1,31 @@
-import Redis from 'ioredis';
+import http from 'node:http';
 
+const APP_BASE_URL = (process.env.ZENITH_APP_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+const WORKER_SECRET = process.env.ZENITH_WORKER_SECRET;
+const HEALTH_PORT = Number(process.env.WORKER_HEALTH_PORT || '3002');
 
-const APP_BASE_URL = (process.env.VOICE_WORKER_APP_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
-const WORKER_SECRET = process.env.ZENITH_WORKER_SECRET || 'dev-secret';
-
-const redis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
-  maxRetriesPerRequest: null,
-});
-
-const QUEUE_NAME = 'zenith:automation:events';
-const PROCESSING_QUEUE = 'zenith:automation:events:processing';
-const DEAD_QUEUE = 'zenith:automation:events:dead';
-
-console.log(`[automation-worker] Starting worker...`);
-
-async function performStartupSweep() {
-  console.log(`[automation-worker] Performing startup sweep of processing queue...`);
-  let sweptCount = 0;
-  while (true) {
-    const item = await redis.rpoplpush(PROCESSING_QUEUE, QUEUE_NAME);
-    if (!item) break;
-    sweptCount++;
-  }
-  console.log(`[automation-worker] Swept ${sweptCount} items back to main queue.`);
+if (!WORKER_SECRET) {
+  throw new Error('ZENITH_WORKER_SECRET is required');
 }
 
-async function processEvent(eventJsonStr) {
-  let eventPayload;
-  try {
-    eventPayload = JSON.parse(eventJsonStr);
-  } catch (err) {
-    console.error(`[automation-worker] Failed to parse event JSON. Moving to dead queue.`);
-    await redis.lpush(DEAD_QUEUE, eventJsonStr);
-    await redis.lrem(PROCESSING_QUEUE, 1, eventJsonStr);
-    return;
-  }
+console.log(`[automation-worker] Starting outbox polling worker...`);
 
+let stopping = false;
+let lastHealthyAt = Date.now();
+
+const healthServer = http.createServer((request, response) => {
+  const live = request.url === '/live';
+  const ready = request.url === '/ready' && Date.now() - lastHealthyAt < 60_000;
+  response.statusCode = live || ready ? 200 : 503;
+  response.setHeader('Content-Type', 'application/json');
+  response.end(JSON.stringify({ status: live || ready ? 'ok' : 'unavailable' }));
+});
+
+healthServer.listen(HEALTH_PORT, '0.0.0.0');
+
+async function processEvent(event) {
+  let success = false;
+  let errorMsg = null;
   try {
     const res = await fetch(`${APP_BASE_URL}/api/zenith/workers/automation-dispatcher`, {
       method: 'POST',
@@ -43,80 +33,105 @@ async function processEvent(eventJsonStr) {
         'Content-Type': 'application/json',
         'x-zenith-worker-token': WORKER_SECRET,
       },
-      body: eventJsonStr,
+      body: JSON.stringify({
+        accountId: event.accountId,
+        triggerType: event.eventType,
+        eventId: event.eventId,
+        entityType: event.aggregateType,
+        entityId: event.aggregateId,
+        // The event payload column actually contains the entire normalized event object now.
+        payload: event.payload?.payload || event.payload,
+        depth: event.depth,
+      }),
+      signal: AbortSignal.timeout(30_000),
     });
     
     if (res.ok) {
-      console.log(`[automation-worker] Successfully dispatched event. ACKing.`);
-      await redis.lrem(PROCESSING_QUEUE, 1, eventJsonStr);
+      console.log(`[automation-worker] Successfully dispatched event ${event.eventId}.`);
+      success = true;
     } else {
-      console.error(`[automation-worker] Failed to dispatch event. HTTP ${res.status}`);
-      const text = await res.text().catch(() => '');
-      console.error(`[automation-worker] Response: ${text}`);
-      await handleFailure(eventPayload, eventJsonStr);
+      const data = await res.json().catch(() => ({}));
+      errorMsg = data.error || `HTTP ${res.status}`;
+      console.error(`[automation-worker] Failed to dispatch event ${event.eventId}: ${errorMsg}`);
     }
-  } catch (err) {
-    console.error(`[automation-worker] Error making HTTP request:`, err);
-    await handleFailure(eventPayload, eventJsonStr);
+  } catch (error) {
+    errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[automation-worker] Dispatcher request failed.`, {
+      errorCode: error instanceof Error ? error.name : 'unknown_error',
+    });
   }
-}
 
-async function handleFailure(eventPayload, eventJsonStr) {
-  // Remove from processing
-  await redis.lrem(PROCESSING_QUEUE, 1, eventJsonStr);
-  
-  const attempts = (eventPayload.attempts || 0) + 1;
-  const newPayload = { ...eventPayload, attempts };
-  
-  if (attempts < 3) {
-    console.log(`[automation-worker] Retrying event (Attempt ${attempts}/3). Re-queueing...`);
-    await redis.lpush(QUEUE_NAME, JSON.stringify(newPayload));
-  } else {
-    console.error(`[automation-worker] Event exceeded max retries. Moving to DLQ.`);
-    await redis.lpush(DEAD_QUEUE, JSON.stringify(newPayload));
+  // ACK/NACK back to outbox-ack
+  try {
+    await fetch(`${APP_BASE_URL}/api/zenith/workers/automation-outbox-ack`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-zenith-worker-token': WORKER_SECRET,
+      },
+      body: JSON.stringify({
+        id: event.id,
+        success,
+        error: errorMsg,
+      }),
+    });
+  } catch (ackError) {
+    console.error(`[automation-worker] Failed to ACK event ${event.eventId}. It will be retried later when lease expires.`);
   }
-}
-
-async function sweepOutboxLoop() {
-  setInterval(async () => {
-    try {
-      const res = await fetch(`${APP_BASE_URL}/api/zenith/workers/automation-outbox-sweep`, {
-        method: 'POST',
-        headers: {
-          'x-zenith-worker-token': WORKER_SECRET,
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.pushedCount > 0) {
-          console.log(`[automation-worker] Outbox Sweep: Recovered ${data.pushedCount} events.`);
-        }
-      }
-    } catch (e) {
-      // ignore silent failures for outbox sweep
-    }
-  }, 30000);
 }
 
 async function loop() {
-  while (true) {
+  while (!stopping) {
     try {
-      // BRPOPLPUSH atomically moves from main to processing and returns it
-      const eventJson = await redis.brpoplpush(QUEUE_NAME, PROCESSING_QUEUE, 0);
-      if (eventJson) {
-        await processEvent(eventJson);
+      const res = await fetch(`${APP_BASE_URL}/api/zenith/workers/automation-outbox-claim`, {
+        method: 'POST',
+        headers: {
+          'x-zenith-worker-token': WORKER_SECRET,
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Claim API responded with HTTP ${res.status}`);
       }
-    } catch (err) {
-      console.error(`[automation-worker] Error in BRPOPLPUSH loop:`, err);
+
+      const data = await res.json();
+      lastHealthyAt = Date.now();
+
+      if (data.events && data.events.length > 0) {
+        console.log(`[automation-worker] Claimed ${data.events.length} events.`);
+        for (const event of data.events) {
+          if (stopping) break;
+          await processEvent(event);
+        }
+      } else {
+        // No events, wait before polling again
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (error) {
+      if (stopping) break;
+      console.error(`[automation-worker] Claim error:`, error.message);
       await new Promise(r => setTimeout(r, 5000));
     }
   }
 }
 
 async function main() {
-  await performStartupSweep();
-  sweepOutboxLoop();
-  loop();
+  await loop();
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error("[automation-worker] fatal", {
+    errorCode: error instanceof Error ? error.name : "unknown_error",
+  });
+  process.exitCode = 1;
+});
+
+function shutdown() {
+  stopping = true;
+  healthServer.close();
+  setTimeout(() => process.exit(0), 5_000).unref();
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

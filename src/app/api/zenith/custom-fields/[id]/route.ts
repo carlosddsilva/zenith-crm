@@ -6,7 +6,9 @@ import { customFields } from "@/lib/db/schema";
 import { requireZenithRole } from "@/lib/auth/zenith-account";
 
 function errorResponse(error: unknown) {
-  console.error("[zenith custom-field id]", error);
+  console.error("[zenith custom-field id]", {
+    errorCode: error instanceof Error ? error.name : "UnknownError",
+  });
 
   if (
     typeof error === "object" &&

@@ -4,6 +4,7 @@ import { tasks, activities } from '@/lib/db/schema/activities';
 import { accountMembers } from '@/lib/db/schema/identity';
 import { eq, and } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 import { z } from 'zod';
 
 const updateTaskSchema = z.object({
@@ -15,10 +16,13 @@ const updateTaskSchema = z.object({
   assignedUserId: z.string().uuid().nullable().optional(),
 });
 
-export async function PATCH(req: Request, { params }: any) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const { accountId, userId } = await requireZenithRole('agent');
-    const taskId = params.id;
+    const { id: taskId } = await params;
     const body = await req.json();
 
     const result = updateTaskSchema.safeParse(body);
@@ -102,31 +106,62 @@ export async function PATCH(req: Request, { params }: any) {
         });
       }
 
-      return updated;
-    });
-
-    // Publish Automation Events
-    try {
       const { publishEvent } = await import('@/lib/events/bus');
-      if (updatedTask.status === 'completed' && existingTask.status !== 'completed') {
-        publishEvent({
+      if (updated.status === 'completed' && existingTask.status !== 'completed') {
+        await publishEvent(tx, {
           accountId,
           triggerType: 'task.completed',
           entityType: 'task',
-          entityId: updatedTask.id,
-          payload: { task: updatedTask },
+          entityId: updated.id,
+          payload: { task: updated },
         });
       }
-    } catch (evtErr) {
-      console.error('[EventBus] Failed to publish task events:', evtErr);
-    }
+
+      return updated;
+    });
 
     return NextResponse.json(updatedTask);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[PATCH /api/zenith/tasks/[id]]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[PATCH /api/zenith/tasks/[id]]');
   }
 }
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { accountId, userId } = await requireZenithRole('agent');
+    const { id: taskId } = await params;
+
+    const [existingTask] = await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.accountId, accountId)));
+
+    if (!existingTask) {
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.delete(tasks).where(eq(tasks.id, taskId));
+
+      await tx.insert(activities).values({
+        accountId,
+        type: 'task_deleted',
+        actorUserId: userId,
+        taskId: null, // Task is deleted, so we can't link it
+        contactId: existingTask.contactId,
+        dealId: existingTask.dealId,
+        metadata: {
+          title: existingTask.title,
+        },
+      });
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[DELETE /api/zenith/tasks/[id]]');
+  }
+}
+

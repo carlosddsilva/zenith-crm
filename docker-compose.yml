@@ -7,11 +7,7 @@ services:
       context: .
       # NEXT_PUBLIC_* vars are inlined at build time - forward them
       # from .env.local via `docker compose --env-file .env.local ...`.
-      # Supabase values remain temporarily required while the migration
-      # to standalone PostgreSQL/Auth/Realtime/Storage is in progress.
       args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
         NEXT_PUBLIC_APP_LOCALE: ${NEXT_PUBLIC_APP_LOCALE:-en}
     env_file:
@@ -22,6 +18,7 @@ services:
       # from .env.local so the same file works for local Node and Compose.
       DATABASE_URL: postgresql://${POSTGRES_USER:-zenith}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-zenith_crm}
       REDIS_URL: redis://redis:6379
+      ZENITH_WORKER_SECRET: ${ZENITH_WORKER_SECRET:?ZENITH_WORKER_SECRET must be set}
     ports:
       - '${HOST_PORT:-3000}:3000'
     depends_on:
@@ -30,13 +27,15 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
     healthcheck:
       test:
         [
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000').then((r)=>process.exit(r.ok||r.status<500?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://localhost:3000/api/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 5s
@@ -52,19 +51,44 @@ services:
       - '127.0.0.1:${WACALLS_PORT:-18080}:8080'
     volumes:
       - wacalls_data:/data
+    environment:
+      WACALLS_ALLOWED_ORIGIN: ${WACALLS_ALLOWED_ORIGIN:-}
     restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', '--show-error', 'http://localhost:8080/health/live']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
   voice-events-worker:
     image: zenith-crm-app:local
     command: ['node', 'scripts/voice-events-worker.mjs']
     env_file:
       - .env.local
     environment:
-      VOICE_WORKER_APP_URL: http://app:3000
+      ZENITH_APP_URL: http://app:3000
       REDIS_URL: redis://redis:6379
+      WORKER_HEALTH_PORT: 3002
     depends_on:
       app:
         condition: service_healthy
     restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3002/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   automation-events-worker:
     image: zenith-crm-app:local
@@ -72,18 +96,117 @@ services:
     env_file:
       - .env.local
     environment:
-      VOICE_WORKER_APP_URL: http://app:3000
+      ZENITH_APP_URL: http://app:3000
       REDIS_URL: redis://redis:6379
+      ZENITH_WORKER_SECRET: ${ZENITH_WORKER_SECRET:?ZENITH_WORKER_SECRET must be set}
     depends_on:
       app:
         condition: service_healthy
       redis:
         condition: service_started
     restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3002/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  broadcast-worker:
+    image: zenith-crm-app:local
+    command: ['node', 'scripts/broadcast-worker.mjs']
+    env_file:
+      - .env.local
+    environment:
+      ZENITH_APP_URL: http://app:3000
+      WORKER_HEALTH_PORT: 3002
+      ZENITH_WORKER_SECRET: ${ZENITH_WORKER_SECRET:?ZENITH_WORKER_SECRET must be set}
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3002/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  google-calendar-worker:
+    image: zenith-crm-app:local
+    command: ['node', 'scripts/google-calendar-worker.mjs']
+    env_file:
+      - .env.local
+    environment:
+      ZENITH_APP_URL: http://app:3000
+      WORKER_HEALTH_PORT: 3003
+      ZENITH_WORKER_SECRET: ${ZENITH_WORKER_SECRET:?ZENITH_WORKER_SECRET must be set}
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3003/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  ai-worker:
+    image: zenith-crm-app:local
+    command: ['node', 'scripts/ai-worker.mjs']
+    env_file:
+      - .env.local
+    environment:
+      ZENITH_APP_URL: http://app:3000
+      WORKER_HEALTH_PORT: 3004
+      ZENITH_WORKER_SECRET: ${ZENITH_WORKER_SECRET:?ZENITH_WORKER_SECRET must be set}
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3004/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   postgres:
-    # pgvector image keeps the project compatible with the existing AI
-    # knowledge migrations while remaining standard PostgreSQL 16.
+    # pgvector image remains compatible with historical migrations while
+    # running as standard PostgreSQL 16 for the current application.
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-zenith_crm}

@@ -148,6 +148,83 @@
       "when": 1789152773879,
       "tag": "0020_easy_squadron_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789160301881,
+      "tag": "0021_fluffy_amazoness",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789580622922,
+      "tag": "0022_hard_warpath",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789581171516,
+      "tag": "0023_mature_gargoyle",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789581546686,
+      "tag": "0024_material_jigsaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789583331298,
+      "tag": "0025_dizzy_lilandra",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789584612510,
+      "tag": "0026_funny_puma",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1789586247162,
+      "tag": "0027_outgoing_preak",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789587347407,
+      "tag": "0028_keen_starfox",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789589241577,
+      "tag": "0029_milky_the_stranger",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789589575221,
+      "tag": "0030_amused_wild_child",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789593221016,
+      "tag": "0031_red_carnage",
+      "breakpoints": true
     }
   ]
 }

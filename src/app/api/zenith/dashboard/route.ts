@@ -300,7 +300,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error("[zenith dashboard]", error);
+    console.error("[zenith dashboard]", {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    });
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

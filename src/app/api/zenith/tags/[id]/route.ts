@@ -10,7 +10,9 @@ import { tags } from "@/lib/db/schema";
 import { requireZenithRole } from "@/lib/auth/zenith-account";
 
 function errorResponse(error: unknown) {
-  console.error("[zenith tag id]", error);
+  console.error("[zenith tag id]", {
+    errorCode: error instanceof Error ? error.name : "UnknownError",
+  });
 
   if (
     typeof error === "object" &&

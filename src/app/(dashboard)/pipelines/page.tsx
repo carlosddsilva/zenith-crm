@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Pipeline, PipelineStage, Deal } from '@/types';
 import { PipelineBoard } from '@/components/pipelines/pipeline-board';
 import { PipelineSettings } from '@/components/pipelines/pipeline-settings';
@@ -23,7 +23,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { GitBranch, Plus, ChevronDown, Settings } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { GitBranch, Plus, ChevronDown, Settings, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@/hooks/use-can';
 import { useAuth } from '@/hooks/use-auth';
@@ -61,6 +68,37 @@ export default function PipelinesPage() {
   const [newPipelineName, setNewPipelineName] = useState('');
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Filters state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('open');
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
+
+  const uniqueAssignees = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    deals.forEach((d) => {
+      if (d.assignee && d.assignee.id) {
+        map.set(d.assignee.id, { id: d.assignee.id, name: d.assignee.full_name || 'Unknown' });
+      }
+    });
+    return Array.from(map.values());
+  }, [deals]);
+
+  const filteredDeals = useMemo(() => {
+    return deals.filter((d) => {
+      if (statusFilter !== 'all' && d.status !== statusFilter) return false;
+      if (assigneeFilter !== 'all' && d.assigned_to !== assigneeFilter) return false;
+      
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchTitle = d.title?.toLowerCase().includes(q);
+        const matchContact = d.contact?.name?.toLowerCase().includes(q);
+        const matchCompany = d.company?.name?.toLowerCase().includes(q);
+        if (!matchTitle && !matchContact && !matchCompany) return false;
+      }
+      return true;
+    });
+  }, [deals, statusFilter, assigneeFilter, searchQuery]);
 
   // Deal form state is lifted here so both the top-bar "Add Deal" and
   // the per-column "+" trigger the same Sheet.
@@ -415,10 +453,48 @@ export default function PipelinesPage() {
         </div>
       ) : (
         <>
-          <PipelineAnalytics stages={stages} deals={deals} />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center bg-card border border-border p-3 rounded-lg shadow-sm">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder={t('searchDeals') || 'Pesquisar negócios...'}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 h-9 bg-background"
+              />
+            </div>
+            
+            <Select value={statusFilter} onValueChange={(val) => setStatusFilter(val || 'all')}>
+              <SelectTrigger className="w-[140px] h-9 bg-background">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('statusAll') || 'Todos'}</SelectItem>
+                <SelectItem value="open">{t('statusOpen') || 'Abertos'}</SelectItem>
+                <SelectItem value="won">{t('statusWon') || 'Ganhos'}</SelectItem>
+                <SelectItem value="lost">{t('statusLost') || 'Perdidos'}</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={assigneeFilter} onValueChange={(val) => setAssigneeFilter(val || 'all')}>
+              <SelectTrigger className="w-[160px] h-9 bg-background truncate">
+                <SelectValue placeholder="Responsável" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('assigneeAll') || 'Todos'}</SelectItem>
+                {uniqueAssignees.map((assignee) => (
+                  <SelectItem key={assignee.id} value={assignee.id}>
+                    {assignee.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <PipelineAnalytics stages={stages} deals={filteredDeals} />
           <PipelineBoard
             stages={stages}
-            deals={deals}
+            deals={filteredDeals}
             onDealMoved={handleDealMoved}
             onAddDeal={handleAddDeal}
             onEditDeal={handleEditDeal}

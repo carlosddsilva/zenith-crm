@@ -15,13 +15,16 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci
 
+FROM deps AS prod-deps
+RUN npm prune --omit=dev
+
 # ---------------------------------------------------------------
 # Stage 2 â€” build
 #
 # NEXT_PUBLIC_* values are inlined into the client bundle at build
 # time, so they must be provided as build args (docker-compose.yml
-# forwards them from .env.local). Server-only secrets (service role
-# key, ENCRYPTION_KEY, META_APP_SECRET, ...) are read at runtime and
+# forwards them from .env.local). Server-only secrets (database URL,
+# ENCRYPTION_KEY, META_APP_SECRET, ...) are read at runtime and
 # must NOT be baked into the image.
 # ---------------------------------------------------------------
 FROM node:22-bookworm-slim AS builder
@@ -29,13 +32,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_APP_LOCALE=en
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
-    NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
-    NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_PUBLIC_APP_LOCALE=$NEXT_PUBLIC_APP_LOCALE \
     NEXT_TELEMETRY_DISABLED=1
 
@@ -65,7 +64,10 @@ COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 
 COPY --from=builder --chown=nextjs:nextjs /app/scripts/voice-events-worker.mjs ./scripts/voice-events-worker.mjs
 COPY --from=builder --chown=nextjs:nextjs /app/scripts/automation-worker.mjs ./scripts/automation-worker.mjs
-COPY --from=deps --chown=nextjs:nextjs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nextjs /app/scripts/broadcast-worker.mjs ./scripts/broadcast-worker.mjs
+COPY --from=builder --chown=nextjs:nextjs /app/scripts/google-calendar-worker.mjs ./scripts/google-calendar-worker.mjs
+COPY --from=builder --chown=nextjs:nextjs /app/scripts/ai-worker.mjs ./scripts/ai-worker.mjs
+COPY --from=prod-deps --chown=nextjs:nextjs /app/node_modules ./node_modules
 
 USER nextjs
 EXPOSE 3000

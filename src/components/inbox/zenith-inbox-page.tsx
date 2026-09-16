@@ -80,6 +80,8 @@ interface ZenithConversation {
   ai_autoreply_disabled: boolean;
   ai_reply_count: number;
   ai_handoff_summary: string | null;
+  first_unreplied_message_at: string | null;
+  sla_status: "ok" | "warning" | "overdue";
   created_at: string;
   updated_at: string;
   contact: ZenithConversationContact;
@@ -270,6 +272,11 @@ export function ZenithInboxPage() {
       "all" | ConversationStatus
     >("all");
 
+  const [slaFilter, setSlaFilter] =
+    useState<
+      "all" | "warning,overdue"
+    >("all");
+
   const [search, setSearch] =
     useState("");
 
@@ -382,6 +389,15 @@ export function ZenithInboxPage() {
             params.set(
               "status",
               statusFilter,
+            );
+          }
+
+          if (
+            slaFilter !== "all"
+          ) {
+            params.set(
+              "slaStatus",
+              slaFilter,
             );
           }
 
@@ -1304,6 +1320,33 @@ export function ZenithInboxPage() {
                 ),
               )}
             </div>
+
+            <div className="mt-1 flex gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={slaFilter === "all" ? "default" : "outline"}
+                onClick={() => {
+                  setSlaFilter("all");
+                  setTimeout(() => void loadConversations(), 0);
+                }}
+                className="flex-1 text-xs"
+              >
+                SLA: Todos
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={slaFilter === "warning,overdue" ? "destructive" : "outline"}
+                onClick={() => {
+                  setSlaFilter("warning,overdue");
+                  setTimeout(() => void loadConversations(), 0);
+                }}
+                className="flex-1 text-xs"
+              >
+                SLA: Atrasados
+              </Button>
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1381,6 +1424,14 @@ export function ZenithInboxPage() {
                           )}
                         </span>
                       </div>
+
+                      {conversation.sla_status !== "ok" && (
+                        <div className="mt-1 flex items-center gap-1">
+                          <Badge variant={conversation.sla_status === "overdue" ? "destructive" : "secondary"} className="px-1 py-0 text-[9px] h-4">
+                            SLA {conversation.sla_status === "overdue" ? "Estourado" : "Alerta"}
+                          </Badge>
+                        </div>
+                      )}
                     </button>
                   );
                 },
@@ -1408,11 +1459,18 @@ export function ZenithInboxPage() {
             <>
               <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border bg-card px-5 py-3">
                 <div className="min-w-0">
-                  <h2 className="truncate font-semibold">
-                    {contactLabel(
-                      activeConversation.contact,
+                  <div className="flex items-center gap-2">
+                    <h2 className="truncate font-semibold">
+                      {contactLabel(
+                        activeConversation.contact,
+                      )}
+                    </h2>
+                    {activeConversation.sla_status !== "ok" && (
+                      <Badge variant={activeConversation.sla_status === "overdue" ? "destructive" : "secondary"} className="h-5 px-1.5 text-[10px]">
+                        SLA {activeConversation.sla_status === "overdue" ? "Estourado" : "Alerta"}
+                      </Badge>
                     )}
-                  </h2>
+                  </div>
 
                   <p className="truncate text-xs text-muted-foreground">
                     {

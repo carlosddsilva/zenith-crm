@@ -6,6 +6,8 @@ import { companies } from "@/lib/db/schema/companies";
 import { users } from "@/lib/db/schema/identity";
 import { eq, and, desc } from "drizzle-orm";
 import { requireZenithRole } from "@/lib/auth/zenith-account";
+import { apiErrorResponse } from "@/lib/api/error-response";
+import { validateDealRelations } from "@/lib/deals/relations";
 
 export async function GET(req: Request) {
   try {
@@ -36,7 +38,8 @@ export async function GET(req: Request) {
       .leftJoin(users, eq(deals.assignedTo, users.id))
       .leftJoin(pipelineStages, eq(deals.stageId, pipelineStages.id))
       .where(and(...conditions))
-      .orderBy(desc(deals.createdAt));
+      .orderBy(desc(deals.createdAt))
+      .limit(200);
 
     // Map to match the frontend expected format
     const formattedDeals = dealsList.map(({ deal, contact, company, assignee, stage }) => ({
@@ -60,12 +63,8 @@ export async function GET(req: Request) {
     }));
 
     return NextResponse.json(formattedDeals);
-  } catch (error: any) {
-    if (error.message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    console.error("[GET /api/zenith/deals]", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, "[GET /api/zenith/deals]");
   }
 }
 
@@ -82,6 +81,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Pipeline and Stage are required" }, { status: 400 });
     }
 
+    const relationError = await validateDealRelations(accountId, {
+      pipelineId: body.pipeline_id,
+      stageId: body.stage_id,
+      contactId: body.contact_id || null,
+      companyId: body.company_id || null,
+      assignedTo: body.assigned_to || null,
+    });
+    if (relationError) {
+      return NextResponse.json({ error: relationError }, { status: 400 });
+    }
+
     const deal = await db.transaction(async (tx) => {
       const [newDeal] = await tx
         .insert(deals)
@@ -96,6 +106,8 @@ export async function POST(req: Request) {
           title,
           value: typeof body.value === "number" ? String(body.value) : (body.value || "0"),
           currency: body.currency || "USD",
+
+
           status: body.status || "open",
           notes: body.notes || null,
           expectedCloseDate: body.expected_close_date ? new Date(body.expected_close_date) : null,
@@ -117,12 +129,20 @@ export async function POST(req: Request) {
         },
       });
 
+      const { publishEvent } = await import('@/lib/events/bus');
+      await publishEvent(tx, {
+        accountId,
+        triggerType: 'deal.created',
+        entityType: 'deal',
+        entityId: newDeal.id,
+        payload: { deal: newDeal },
+      });
+
       return newDeal;
     });
 
     // Re-select to return full projection if needed, or just return the deal
     const dealRow = {
-
       ...deal,
       stage_id: deal.stageId,
       pipeline_id: deal.pipelineId,
@@ -137,26 +157,8 @@ export async function POST(req: Request) {
       account_id: deal.accountId,
     };
 
-    // Publish Automation Events
-    try {
-      const { publishEvent } = await import('@/lib/events/bus');
-      publishEvent({
-        accountId,
-        triggerType: 'deal.created',
-        entityType: 'deal',
-        entityId: deal.id,
-        payload: { deal },
-      });
-    } catch (evtErr) {
-      console.error('[EventBus] Failed to publish deal.created:', evtErr);
-    }
-
     return NextResponse.json(dealRow);
-  } catch (error: any) {
-    if (error.message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    console.error("[POST /api/zenith/deals]", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, "[POST /api/zenith/deals]");
   }
 }

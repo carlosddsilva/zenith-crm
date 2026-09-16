@@ -4,8 +4,11 @@ import { db } from "@/lib/db/client";
 import { broadcasts, broadcastRecipients, contacts, contactTags } from "@/lib/db/schema";
 import { requireZenithRole } from "@/lib/auth/zenith-account";
 import { sanitizePhoneForMeta, isValidE164 } from "@/lib/whatsapp/phone-utils";
+import { getMessagingChannel } from "@/lib/messaging/channel-store";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
+const MAX_BROADCAST_RECIPIENTS = 5_000;
 
 export async function POST(
   request: NextRequest,
@@ -14,6 +17,11 @@ export async function POST(
   try {
     const { id } = await params;
     const ctx = await requireZenithRole("admin");
+    const rateLimit = checkRateLimit(
+      `broadcast-start:${ctx.accountId}:${ctx.userId}`,
+      RATE_LIMITS.broadcast,
+    );
+    if (!rateLimit.success) return rateLimitResponse(rateLimit);
 
     const [b] = await db
       .select()
@@ -23,12 +31,30 @@ export async function POST(
     if (!b) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     if (b.status !== 'draft') return NextResponse.json({ error: 'Broadcast must be in draft status to start' }, { status: 400 });
     if (!b.messagingChannelId) return NextResponse.json({ error: 'Broadcast channel missing' }, { status: 400 });
+
+    const channel = await getMessagingChannel(ctx.accountId, b.messagingChannelId);
+    if (!channel) {
+      return NextResponse.json({ error: 'Broadcast channel is unavailable' }, { status: 409 });
+    }
     
     // Resolve Audience
-    const audience = b.audience as { tags?: string[], manualContacts?: string[] } | null;
+    const audience = b.audience as {
+      type?: "all" | "tags" | "manual";
+      tags?: string[];
+      manualContacts?: string[];
+    } | null;
     if (!audience) return NextResponse.json({ error: 'Broadcast audience missing' }, { status: 400 });
 
     const contactIds = new Set<string>();
+
+    if (audience.type === "all") {
+      const allContacts = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.accountId, ctx.accountId))
+        .limit(MAX_BROADCAST_RECIPIENTS + 1);
+      allContacts.forEach((contact) => contactIds.add(contact.id));
+    }
 
     if (audience.manualContacts && audience.manualContacts.length > 0) {
       audience.manualContacts.forEach(id => contactIds.add(id));
@@ -38,12 +64,26 @@ export async function POST(
       const tagged = await db
         .select({ contactId: contactTags.contactId })
         .from(contactTags)
-        .where(inArray(contactTags.tagId, audience.tags));
+        .innerJoin(contacts, eq(contacts.id, contactTags.contactId))
+        .where(
+          and(
+            eq(contacts.accountId, ctx.accountId),
+            inArray(contactTags.tagId, audience.tags),
+          ),
+        )
+        .limit(MAX_BROADCAST_RECIPIENTS + 1);
       tagged.forEach(t => contactIds.add(t.contactId));
     }
 
     if (contactIds.size === 0) {
       return NextResponse.json({ error: 'Resolved audience has 0 contacts' }, { status: 400 });
+    }
+
+    if (contactIds.size > MAX_BROADCAST_RECIPIENTS) {
+      return NextResponse.json(
+        { error: `Broadcast audience exceeds ${MAX_BROADCAST_RECIPIENTS} recipients` },
+        { status: 413 },
+      );
     }
 
     const idsArray = Array.from(contactIds);
@@ -87,17 +127,26 @@ export async function POST(
       await tx.insert(broadcastRecipients).values(recipientsToInsert);
     });
 
-    // Fire and forget dispatcher call to process the first batch immediately
-    // In production, we'd enqueue to Redis or SQS here
-    fetch(new URL('/api/zenith/workers/broadcast-dispatcher', request.url).toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ broadcastId: b.id })
-    }).catch(e => console.error('Failed to trigger dispatcher:', e));
-
     return NextResponse.json({ success: true, count: recipientsToInsert.length });
-  } catch (error: any) {
-    console.error("[api] broadcasts/[id]/start POST error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+  } catch (error: unknown) {
+    console.error("[broadcast start] failed", {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    });
+    const status =
+      typeof error === "object" &&
+      error !== null &&
+      "status" in error &&
+      typeof error.status === "number"
+        ? error.status
+        : 500;
+    return NextResponse.json(
+      {
+        error:
+          status < 500 && error instanceof Error
+            ? error.message
+            : "Internal server error",
+      },
+      { status },
+    );
   }
 }

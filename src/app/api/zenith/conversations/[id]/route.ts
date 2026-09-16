@@ -38,7 +38,9 @@ function isStatus(
 function errorResponse(error: unknown) {
   console.error(
     "[zenith conversation id]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   if (

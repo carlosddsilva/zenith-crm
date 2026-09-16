@@ -8,8 +8,13 @@ import {
 } from "next/server";
 
 import {
-  requireZenithRole,
+  getZenithAccountContext,
+  ZenithForbiddenError,
 } from "@/lib/auth/zenith-account";
+
+import {
+  hasMinRole,
+} from "@/lib/auth/roles";
 
 import {
   db,
@@ -57,8 +62,7 @@ function handleError(
   ) {
     return NextResponse.json(
       {
-        error:
-          error.message,
+        error: "Falha no provedor de voz.",
         code:
           error.code,
       },
@@ -91,14 +95,11 @@ function handleError(
       ? candidateStatus
       : 500;
 
-  const message =
-    error instanceof Error
-      ? error.message
-      : "Erro ao executar acao da chamada.";
-
   console.error(
     "[voice call action]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   return NextResponse.json(
@@ -123,9 +124,18 @@ export async function POST(
 ) {
   try {
     const context =
-      await requireZenithRole(
+      await getZenithAccountContext();
+
+    if (
+      !hasMinRole(
+        context.role,
         "agent",
+      )
+    ) {
+      throw new ZenithForbiddenError(
+        "Esta operacao requer permissao agent ou superior.",
       );
+    }
 
     const { id } =
       await params;
@@ -171,6 +181,26 @@ export async function POST(
         },
         {
           status: 400,
+        },
+      );
+    }
+
+    /*
+     * Suspensao bloqueia novos claims, mas nao pode
+     * impedir o encerramento seguro de uma chamada
+     * que ja estava ativa quando a conta foi suspensa.
+     */
+    if (
+      context.isSuspended &&
+      action !== "hangup"
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Empresa suspensa. Apenas o encerramento de chamada ativa e permitido.",
+        },
+        {
+          status: 403,
         },
       );
     }
@@ -260,6 +290,22 @@ export async function POST(
             "A chamada ja esta encerrada.",
           state:
             call.state,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      call.assignedAgentId &&
+      call.assignedAgentId !==
+        context.userId
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "A chamada pertence a outro operador.",
         },
         {
           status: 409,

@@ -2,12 +2,23 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { contacts } from "@/lib/db/schema";
+import { companies, contacts } from "@/lib/db/schema";
 import {
   getZenithAccountContext,
   requireZenithRole,
 } from "@/lib/auth/zenith-account";
 import { normalizePhone } from "@/lib/whatsapp/phone-utils";
+
+async function companyBelongsToAccount(companyId: unknown, accountId: string) {
+  if (companyId === null || companyId === undefined || companyId === "") return true;
+  if (typeof companyId !== "string") return false;
+  const [company] = await db
+    .select({ id: companies.id })
+    .from(companies)
+    .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+    .limit(1);
+  return Boolean(company);
+}
 
 function contactResponse(contact: typeof contacts.$inferSelect) {
   return {
@@ -27,7 +38,9 @@ function contactResponse(contact: typeof contacts.$inferSelect) {
 }
 
 function errorResponse(error: unknown) {
-  console.error("[zenith contacts id]", error);
+  console.error("[zenith contacts id]", {
+    errorCode: error instanceof Error ? error.name : "UnknownError",
+  });
 
   if (
     typeof error === "object" &&
@@ -133,6 +146,13 @@ export async function PATCH(
     const update: Partial<typeof contacts.$inferInsert> = {
       updatedAt: new Date(),
     };
+
+    if (
+      "company_id" in body &&
+      !(await companyBelongsToAccount(body.company_id, context.accountId))
+    ) {
+      return NextResponse.json({ error: "Invalid company_id" }, { status: 400 });
+    }
 
     if ("name" in body) {
       update.name = body.name?.trim() || null;

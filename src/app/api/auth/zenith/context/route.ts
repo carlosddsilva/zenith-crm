@@ -55,7 +55,9 @@ export async function GET() {
 
     console.error(
       "[Zenith account context]",
-      error,
+      {
+        errorCode: error instanceof Error ? error.name : "UnknownError",
+      },
     );
 
     return NextResponse.json(

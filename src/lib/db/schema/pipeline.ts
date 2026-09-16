@@ -155,6 +155,7 @@ export const deals = pgTable(
     index('deals_contact_id_idx').on(table.contactId),
     index('deals_assigned_to_idx').on(table.assignedTo),
     index('deals_status_idx').on(table.status),
+    index('deals_account_pipeline_stage_status_idx').on(table.accountId, table.pipelineId, table.stageId, table.status),
   ]
 );
 

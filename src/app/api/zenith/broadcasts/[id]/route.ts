@@ -3,6 +3,7 @@ import { eq, and, count } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { broadcasts, broadcastRecipients } from "@/lib/db/schema";
 import { requireZenithRole } from "@/lib/auth/zenith-account";
+import { apiErrorResponse } from "@/lib/api/error-response";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         read
       }
     });
-  } catch (error: any) {
-    console.error("[api] broadcasts/[id] GET error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, "[api] broadcasts/[id] GET error");
   }
 }
 
@@ -77,9 +77,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       .returning();
 
     return NextResponse.json(updated);
-  } catch (error: any) {
-    console.error("[api] broadcasts/[id] PATCH error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, "[api] broadcasts/[id] PATCH error");
   }
 }
 
@@ -105,8 +104,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     await db.delete(broadcasts).where(eq(broadcasts.id, id));
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[api] broadcasts/[id] DELETE error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, "[api] broadcasts/[id] DELETE error");
   }
 }

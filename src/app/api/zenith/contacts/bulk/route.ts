@@ -1,24 +1,32 @@
 import { NextResponse } from "next/server";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { contacts } from "@/lib/db/schema";
 import { requireZenithRole } from "@/lib/auth/zenith-account";
 import { normalizePhone } from "@/lib/whatsapp/phone-utils";
 import { normalizeKey } from "@/lib/contacts/dedupe";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
+
+const MAX_CONTACTS_PER_REQUEST = 1_000;
 
 export async function POST(request: Request) {
   try {
     const context = await requireZenithRole("agent");
+    const rateLimit = checkRateLimit(`contacts-bulk:${context.accountId}:${context.userId}`, RATE_LIMITS.contactsBulk);
+    if (!rateLimit.success) return rateLimitResponse(rateLimit);
     const body = (await request.json()) as {
       contacts: { phone: string; name?: string }[];
     };
 
-    if (!body.contacts || !Array.isArray(body.contacts)) {
+    if (!body.contacts || !Array.isArray(body.contacts) || body.contacts.length > MAX_CONTACTS_PER_REQUEST) {
       return NextResponse.json({ error: "Invalid contacts array" }, { status: 400 });
     }
 
     const uniqueByKey = new Map<string, { phone: string; name?: string }>();
     for (const row of body.contacts) {
+      if (!row || typeof row.phone !== "string" || row.phone.length > 64 || (row.name !== undefined && (typeof row.name !== "string" || row.name.length > 255))) {
+        return NextResponse.json({ error: "Invalid contact row" }, { status: 400 });
+      }
       const key = normalizeKey(row.phone);
       if (key && !uniqueByKey.has(key)) {
         uniqueByKey.set(key, { ...row, phone: normalizePhone(row.phone) || row.phone });
@@ -71,8 +79,11 @@ export async function POST(request: Request) {
       .filter((id): id is string => Boolean(id));
 
     return NextResponse.json({ items: resultIds });
-  } catch (error: any) {
-    console.error("[api] contacts/bulk POST error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+  } catch (error: unknown) {
+    console.error("[contacts bulk] failed", {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    });
+    const status = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : 500;
+    return NextResponse.json({ error: status === 500 ? "Internal server error" : error instanceof Error ? error.message : "Request failed" }, { status });
   }
 }

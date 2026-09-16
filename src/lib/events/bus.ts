@@ -1,6 +1,6 @@
 import { AutomationTriggerType } from '@/types';
 import { randomUUID } from 'crypto';
-import { redis } from '@/lib/redis';
+import { automationEventsOutbox } from '@/lib/db/schema';
 
 export interface DispatchEventPayload {
   accountId: string;
@@ -15,11 +15,19 @@ export interface DispatchEventPayload {
   payload: Record<string, any>;
   /** Loop prevention: current depth of the automation chain */
   depth?: number;
+  /** Trace correlation ID */
+  correlationId?: string;
+  /** The event that caused this one */
+  causationId?: string;
 }
 
 const MAX_AUTOMATION_DEPTH = 3;
 
-export async function publishEvent(event: DispatchEventPayload) {
+/**
+ * Publishes an event to the transactional outbox.
+ * MUST be called within a database transaction to guarantee atomic delivery.
+ */
+export async function publishEvent(tx: any, event: DispatchEventPayload) {
   const depth = event.depth ?? 0;
   if (depth >= MAX_AUTOMATION_DEPTH) {
     console.warn(`[EventBus] Max automation depth reached (${depth}) for account ${event.accountId}, trigger ${event.triggerType}. Dropping event to prevent infinite loops.`);
@@ -35,29 +43,25 @@ export async function publishEvent(event: DispatchEventPayload) {
     depth,
   };
 
-  // 1. Log to an event history table (optional)
-  // 2. Dispatch to the durable Redis queue
   try {
-    await redis.lpush('zenith:automation:events', JSON.stringify({ ...normalizedEvent, attempts: 0 }));
-  } catch (err) {
-    console.error('[EventBus] Error pushing to Redis queue, falling back to outbox:', err);
-    
-    // Fallback to database outbox if Redis is down
-    const { db } = await import('@/lib/db/client');
-    const { automationEventsOutbox } = await import('@/lib/db/schema');
-    
-    try {
-      await db.insert(automationEventsOutbox).values({
-        eventId: normalizedEvent.eventId,
-        accountId: normalizedEvent.accountId,
-        eventType: normalizedEvent.triggerType,
-        payload: normalizedEvent,
-        depth: normalizedEvent.depth,
-        status: 'pending',
-      });
-      console.log(`[EventBus] Event ${normalizedEvent.eventId} saved to outbox successfully.`);
-    } catch (dbErr) {
-      console.error('[EventBus] CRITICAL: Failed to save event to outbox:', dbErr);
-    }
+    await tx.insert(automationEventsOutbox).values({
+      eventId: normalizedEvent.eventId,
+      accountId: normalizedEvent.accountId,
+      eventType: normalizedEvent.triggerType,
+      aggregateType: normalizedEvent.entityType || null,
+      aggregateId: normalizedEvent.entityId || null,
+      correlationId: normalizedEvent.correlationId || null,
+      causationId: normalizedEvent.causationId || null,
+      payload: normalizedEvent,
+      depth: normalizedEvent.depth,
+      status: 'pending',
+    });
+  } catch (dbError) {
+    console.error('[EventBus] CRITICAL: Failed to save event to outbox.', {
+      accountId: normalizedEvent.accountId,
+      eventId: normalizedEvent.eventId,
+      errorCode: dbError instanceof Error ? dbError.name : 'unknown_error',
+    });
+    throw dbError; // Must throw to abort the transaction!
   }
 }

@@ -27,7 +27,9 @@ function handleError(
 ) {
   console.error(
     "[ivr flows]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   const code =
@@ -58,10 +60,7 @@ function handleError(
 
   return NextResponse.json(
     {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Falha interna ao processar fluxos IVR.",
+      error: "Falha interna ao processar fluxos IVR.",
     },
     {
       status: 500,

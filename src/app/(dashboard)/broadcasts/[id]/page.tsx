@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -128,7 +127,10 @@ const RECIPIENT_STATUSES: readonly RecipientStatus[] = [
  * commas/newlines/quotes round-trip cleanly.
  */
 function toCsv(rows: string[][]): string {
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const escape = (value: string) => {
+    const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
   return rows.map((r) => r.map(escape).join(',')).join('\n');
 }
 
@@ -231,7 +233,7 @@ export default function BroadcastDetailPage() {
   async function handleResume(scope: 'pending' | 'failed') {
     setResumingScope(scope);
     try {
-      const res = await fetch(`/api/whatsapp/broadcast/${broadcastId}/resume`, {
+      const res = await fetch(`/api/zenith/broadcasts/${broadcastId}/retry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope }),
@@ -309,7 +311,7 @@ export default function BroadcastDetailPage() {
   // A campaign whose tab went away sits in 'sending' with recipients
   // still pending and nothing left to move them. Name that state rather
   // than leaving a permanently pulsing "sending" badge.
-  const isStalled = broadcast.status === 'sending' && pendingCount > 0;
+  const isStalled = broadcast.status === 'running' && pendingCount > 0;
 
   const funnelSteps: FunnelStep[] = [
     { label: t('stats.sent'), value: broadcast._count?.sent || 0, color: 'bg-primary' },
@@ -379,10 +381,10 @@ export default function BroadcastDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={broadcast.status === 'sending'}
+            disabled={broadcast.status === 'running'}
             onClick={() => setConfirmDelete(true)}
             title={
-              broadcast.status === 'sending'
+              broadcast.status === 'running'
                 ? t('cannotDeleteSending')
                 : t('deleteHover')
             }

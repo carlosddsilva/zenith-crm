@@ -14,6 +14,9 @@ import type {
 import {
   MessagingProviderError,
 } from "../types";
+import { isDeliverableUrl } from "@/lib/webhooks/ssrf";
+
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 
 function requireEvolutionConfig(
   config: MessagingProviderConfig,
@@ -330,6 +333,14 @@ async function sendMedia(
     );
   }
 
+  if (!(await isDeliverableUrl(request.mediaUrl))) {
+    throw new MessagingProviderError(
+      "invalid_media_url",
+      "A URL de mídia precisa usar um host público válido.",
+      400,
+    );
+  }
+
   if (
     ![
       "image",
@@ -354,9 +365,10 @@ async function sendMedia(
    * server-side e encaminha o arquivo.
    */
   const mediaResponse =
-    await fetch(
-      request.mediaUrl,
-    );
+    await fetch(request.mediaUrl, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+    });
 
   if (!mediaResponse.ok) {
     throw new MessagingProviderError(
@@ -366,8 +378,17 @@ async function sendMedia(
     );
   }
 
+  const declaredSize = Number(mediaResponse.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_MEDIA_BYTES) {
+    throw new MessagingProviderError("media_too_large", "A mídia excede o limite de 20 MB.", 413);
+  }
+
   const blob =
     await mediaResponse.blob();
+
+  if (blob.size > MAX_MEDIA_BYTES) {
+    throw new MessagingProviderError("media_too_large", "A mídia excede o limite de 20 MB.", 413);
+  }
 
   const form =
     new FormData();

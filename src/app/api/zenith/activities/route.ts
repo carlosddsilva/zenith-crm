@@ -3,6 +3,7 @@ import { db } from '@/lib/db/client';
 import { activities } from '@/lib/db/schema/activities';
 import { eq, and, desc } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 
 export async function GET(req: Request) {
   try {
@@ -31,11 +32,7 @@ export async function GET(req: Request) {
     const results = await query.orderBy(desc(activities.occurredAt)).limit(limit).offset(offset);
 
     return NextResponse.json(results);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[GET /api/zenith/activities]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[GET /api/zenith/activities]');
   }
 }

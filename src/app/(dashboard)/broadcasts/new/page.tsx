@@ -1,262 +1,157 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/hooks/use-auth';
-import { toast } from 'sonner';
-import { MessageTemplate } from '@/types';
-import { Step1ChooseTemplate } from '@/components/broadcasts/step1-choose-template';
-import { Step2SelectAudience } from '@/components/broadcasts/step2-select-audience';
-import { Step3Personalize } from '@/components/broadcasts/step3-personalize';
-import { Step4ScheduleSend } from '@/components/broadcasts/step4-schedule-send';
-import { Check } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2, Send } from "lucide-react";
+import { toast } from "sonner";
 
-const steps = [
-  { label: 'template', key: 'template' },
-  { label: 'audience', key: 'audience' },
-  { label: 'personalize', key: 'personalize' },
-  { label: 'send', key: 'send' },
-] as const;
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+
+interface Channel {
+  id: string;
+  name: string;
+  provider: "meta" | "evolution";
+  is_active: boolean;
+}
 
 export default function NewBroadcastPage() {
   const router = useRouter();
-  const t = useTranslations('Broadcasts.new');
-  const { accountId } = useAuth();
-  
-  const [isSending, setIsSending] = useState(false);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [name, setName] = useState("");
+  const [message, setMessage] = useState("");
+  const [channelId, setChannelId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  const [currentStep, setCurrentStep] = useState(0);
-  const [template, setTemplate] = useState<MessageTemplate | null>(null);
-  const [audience, setAudience] = useState<{
-    type: 'all' | 'tags' | 'custom_field' | 'csv';
-    tagIds?: string[];
-    customField?: {
-      fieldId: string;
-      operator: 'is' | 'is_not' | 'contains';
-      value: string;
-    };
-    csvContacts?: { phone: string; name?: string }[];
-    excludeTagIds?: string[];
-  }>({ type: 'all' });
-  const [variables, setVariables] = useState<
-    Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
-  >({});
-  const [headerMediaUrl, setHeaderMediaUrl] = useState('');
-  const [name, setName] = useState('');
+  useEffect(() => {
+    void fetch("/api/zenith/messaging-channels", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Falha ao carregar canais");
+        const data = (await response.json()) as { items?: Channel[] };
+        const active = (data.items ?? []).filter((item) => item.is_active);
+        setChannels(active);
+        setChannelId(active[0]?.id ?? "");
+      })
+      .catch((error: unknown) => {
+        toast.error(error instanceof Error ? error.message : "Falha ao carregar canais");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-  async function handleSend() {
-    if (!template || !name.trim()) {
-      toast.error(t('toastGiveName'));
+  async function create(start: boolean) {
+    if (!name.trim() || !message.trim() || !channelId) {
+      toast.error("Nome, mensagem e canal são obrigatórios.");
       return;
     }
-    
-    setIsSending(true);
+
+    setSubmitting(true);
     try {
-      // 1. If CSV contacts, upsert them first
-      let csvContactIds: string[] = [];
-      if (audience.type === 'csv' && audience.csvContacts && audience.csvContacts.length > 0) {
-        const bulkRes = await fetch('/api/zenith/contacts/bulk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contacts: audience.csvContacts })
-        });
-        const bulkData = await bulkRes.json();
-        if (!bulkRes.ok) throw new Error(bulkData.error || 'Failed to import CSV contacts');
-        csvContactIds = bulkData.items || [];
+      const response = await fetch("/api/zenith/broadcasts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          messagingChannelId: channelId,
+          content: { type: "text", text: message.trim() },
+          audience: { type: "all" },
+        }),
+      });
+      const created = (await response.json()) as { id?: string; error?: string };
+      if (!response.ok || !created.id) {
+        throw new Error(created.error ?? "Falha ao criar disparo");
       }
 
-      // 2. Create Draft Broadcast
-      const res = await fetch('/api/zenith/broadcasts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          messagingChannelId: null, // User would select this in a full flow
-          content: {
-            templateName: template.name,
-            templateLanguage: template.language ?? 'en_US',
-            variables: variables,
-            headerMediaUrl
-          },
-          audience: {
-            type: audience.type,
-            tags: audience.tagIds,
-            manualContacts: csvContactIds,
-          }
-        })
-      });
+      if (start) {
+        const startResponse = await fetch(
+          `/api/zenith/broadcasts/${created.id}/start`,
+          { method: "POST" },
+        );
+        const result = (await startResponse.json()) as {
+          error?: string;
+          count?: number;
+        };
+        if (!startResponse.ok) {
+          throw new Error(result.error ?? "Falha ao iniciar disparo");
+        }
+        toast.success(`Disparo iniciado para ${result.count ?? 0} contatos.`);
+      } else {
+        toast.success("Rascunho salvo.");
+      }
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to create broadcast');
-      
-      const broadcastId = data.id;
-
-      // 3. Start Broadcast
-      const startRes = await fetch(`/api/zenith/broadcasts/${broadcastId}/start`, {
-        method: 'POST'
-      });
-      const startData = await startRes.json().catch(() => ({}));
-      if (!startRes.ok) throw new Error(startData.error || 'Failed to start broadcast');
-
-      toast.success(t('toastSuccess', { count: startData.count }));
-      router.push(`/broadcasts/${broadcastId}`);
-    } catch (err: any) {
-      toast.error(err.message || 'Broadcast failed');
-      setIsSending(false);
-    }
-  }
-
-  /**
-   * Writes a draft broadcast row — no recipients, no sending. The user
-   * can revisit it via the list page to finish the flow later. We
-   * don't persist the in-progress audience/variable config here
-   * because the current schema doesn't carry it past `audience_filter`
-   * and `template_variables`; those are enough for the user to
-   * recognize the draft but not to exactly round-trip into the wizard.
-   * A full resume-draft UX is a future polish.
-   */
-  async function handleSaveDraft() {
-    if (!template || !name.trim()) {
-      toast.error(t('toastGiveName'));
-      return;
-    }
-    
-    // In CRM-08 MVP we need a valid channel ID to create a broadcast, 
-    // ideally selected in the UI. For now, we will assume a default or pass null 
-    // and let the API reject if required (I made messagingChannelId nullable but validated on start).
-    try {
-      const res = await fetch('/api/zenith/broadcasts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          messagingChannelId: null, // User would select this in a full flow
-          content: {
-            templateName: template.name,
-            templateLanguage: template.language ?? 'en_US',
-            variables: variables,
-            headerMediaUrl
-          },
-          audience: {
-            type: audience.type,
-            tags: audience.tagIds,
-            manualContacts: audience.csvContacts?.map(c => c.phone) || [],
-          }
-        })
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to save draft');
-      
-      toast.success(t('toastDraftSaved'));
-      router.push('/broadcasts');
-    } catch (err: any) {
-      toast.error(t('toastFailedDraft', { error: err.message }));
+      router.push(`/broadcasts/${created.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao criar disparo");
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('subtitle')}
-        </p>
-      </div>
-
-      {/* Step Indicator */}
-      <div className="flex items-center justify-between">
-        {steps.map((step, index) => {
-          const isActive = index === currentStep;
-          const isCompleted = index < currentStep;
-
-          return (
-            <div key={step.key} className="flex flex-1 items-center">
-              <div className="flex items-center gap-2">
-                <div
-                  className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-all ${
-                    isCompleted
-                      ? 'bg-primary text-primary-foreground'
-                      : isActive
-                        ? 'border-2 border-primary bg-primary/10 text-primary'
-                        : 'border border-border bg-muted text-muted-foreground'
-                  }`}
-                >
-                  {isCompleted ? <Check className="h-4 w-4" /> : index + 1}
-                </div>
-                <span
-                  className={`hidden text-sm font-medium sm:block ${
-                    isActive ? 'text-foreground' : isCompleted ? 'text-primary' : 'text-muted-foreground'
-                  }`}
-                >
-                  {t(`steps.${step.label}`)}
-                </span>
-              </div>
-              {index < steps.length - 1 && (
-                <div
-                  className={`mx-3 h-px flex-1 ${
-                    index < currentStep ? 'bg-primary' : 'bg-muted'
-                  }`}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Step Content */}
-      <div className="relative min-h-[400px]">
-        <div
-          className="transition-all duration-300 ease-in-out"
-          style={{
-            opacity: isSending ? 0.6 : 1,
-            pointerEvents: isSending ? 'none' : 'auto',
-          }}
-        >
-          {currentStep === 0 && (
-            <Step1ChooseTemplate
-              selectedTemplate={template}
-              onSelect={setTemplate}
-              onNext={() => setCurrentStep(1)}
-              onBack={() => router.push('/broadcasts')}
+    <div className="mx-auto max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle>Novo disparo</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="broadcast-name">Nome</Label>
+            <Input
+              id="broadcast-name"
+              maxLength={255}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
             />
-          )}
-          {currentStep === 1 && (
-            <Step2SelectAudience
-              audience={audience}
-              onUpdate={setAudience}
-              onNext={() => setCurrentStep(2)}
-              onBack={() => setCurrentStep(0)}
+          </div>
+          <div className="space-y-2">
+            <Label>Canal</Label>
+            <Select value={channelId} onValueChange={(value) => setChannelId(value ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={loading ? "Carregando…" : "Selecione um canal"} />
+              </SelectTrigger>
+              <SelectContent>
+                {channels.map((channel) => (
+                  <SelectItem key={channel.id} value={channel.id}>
+                    {channel.name} ({channel.provider})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="broadcast-message">Mensagem</Label>
+            <Textarea
+              id="broadcast-message"
+              maxLength={4096}
+              rows={7}
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
             />
-          )}
-          {currentStep === 2 && template && (
-            <Step3Personalize
-              template={template}
-              variables={variables}
-              onUpdate={setVariables}
-              headerMediaUrl={headerMediaUrl}
-              onHeaderMediaUrlChange={setHeaderMediaUrl}
-              onNext={() => setCurrentStep(3)}
-              onBack={() => setCurrentStep(1)}
-            />
-          )}
-          {currentStep === 3 && template && (
-            <Step4ScheduleSend
-              name={name}
-              onNameChange={setName}
-              template={template}
-              audience={audience}
-              onSend={handleSend}
-              onSaveDraft={handleSaveDraft}
-              onBack={() => setCurrentStep(2)}
-              isProcessing={isSending}
-              progress={0}
-            />
-          )}
-        </div>
-      </div>
+            <p className="text-xs text-muted-foreground">
+              O envio usa um snapshot limitado dos contatos com telefone válido.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={submitting} onClick={() => void create(false)}>
+              Salvar rascunho
+            </Button>
+            <Button disabled={submitting || loading || channels.length === 0} onClick={() => void create(true)}>
+              {submitting ? <Loader2 className="animate-spin" /> : <Send />}
+              Iniciar controlado
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

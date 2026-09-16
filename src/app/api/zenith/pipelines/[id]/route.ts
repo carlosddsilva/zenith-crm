@@ -3,14 +3,15 @@ import { db } from '@/lib/db/client';
 import { pipelines, pipelineStages, deals } from '@/lib/db/schema/pipeline';
 import { eq, and } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 
 export async function PATCH(
   req: Request,
-  { params }: any
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { accountId } = await requireZenithRole('admin');
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json(
@@ -44,25 +45,18 @@ export async function PATCH(
     }
 
     return NextResponse.json(updated);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[PATCH /api/zenith/pipelines/[id]]', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[PATCH /api/zenith/pipelines/[id]]');
   }
 }
 
 export async function DELETE(
-  req: Request,
-  { params }: any
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { accountId } = await requireZenithRole('admin');
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json(
@@ -84,14 +78,7 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true, id: deleted.id });
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[DELETE /api/zenith/pipelines/[id]]', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[DELETE /api/zenith/pipelines/[id]]');
   }
 }

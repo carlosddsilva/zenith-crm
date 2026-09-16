@@ -106,6 +106,12 @@ const TERMINAL_STATES =
 const OUTBOUND_CALL_STORAGE_KEY =
   "zenith.voice.outboundCallId";
 
+function muteStorageKey(
+  callId: string,
+) {
+  return `zenith.voice.call.${callId}.muted`;
+}
+
 function formatCallElapsed(
   totalSeconds:
     number,
@@ -544,6 +550,9 @@ const audioRef =
   function closeMedia() {
     stopRingback();
 
+    const mediaCallId =
+      mediaCallIdRef.current;
+
     connectionRef.current
       ?.close();
 
@@ -559,6 +568,14 @@ const audioRef =
     setMuted(
       false,
     );
+
+    if (mediaCallId) {
+      window.localStorage.removeItem(
+        muteStorageKey(
+          mediaCallId,
+        ),
+      );
+    }
 
     if (
       audioRef.current
@@ -940,6 +957,26 @@ if (
           connectionRef.current =
             connection;
 
+          const recoveredMuted =
+            window.localStorage.getItem(
+              muteStorageKey(
+                mediaCallId,
+              ),
+            ) === "true";
+
+          connection.micStream
+            .getAudioTracks()
+            .forEach(
+              (track) => {
+                track.enabled =
+                  !recoveredMuted;
+              },
+            );
+
+          setMuted(
+            recoveredMuted,
+          );
+
           setMediaReady(
             true,
           );
@@ -967,7 +1004,12 @@ if (
 
           console.error(
             "[zenith-calls] outbound media failed",
-            error,
+            {
+              errorCode:
+                error instanceof Error
+                  ? error.name
+                  : "UnknownError",
+            },
           );
 
           toast.error(
@@ -1216,7 +1258,13 @@ if (
     const connection =
       connectionRef.current;
 
-    if (!connection) {
+    const callId =
+      activeCall?.id;
+
+    if (
+      !connection ||
+      !callId
+    ) {
       return;
     }
 
@@ -1235,6 +1283,21 @@ if (
     setMuted(
       nextMuted,
     );
+
+    if (nextMuted) {
+      window.localStorage.setItem(
+        muteStorageKey(
+          callId,
+        ),
+        "true",
+      );
+    } else {
+      window.localStorage.removeItem(
+        muteStorageKey(
+          callId,
+        ),
+      );
+    }
   }
 
   return (

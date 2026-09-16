@@ -13,10 +13,17 @@ const globalForDb = globalThis as unknown as {
   postgresClient?: ReturnType<typeof postgres>;
 };
 
+function positiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const client =
   globalForDb.postgresClient ??
   postgres(databaseUrl, {
-    max: 10,
+    max: positiveInteger(process.env.DATABASE_POOL_MAX, 10),
+    idle_timeout: positiveInteger(process.env.DATABASE_IDLE_TIMEOUT_SECONDS, 20),
+    connect_timeout: positiveInteger(process.env.DATABASE_CONNECT_TIMEOUT_SECONDS, 10),
     prepare: false,
   });
 

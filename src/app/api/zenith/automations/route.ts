@@ -3,6 +3,7 @@ import { db } from '@/lib/db/client';
 import { automations } from '@/lib/db/schema/automations';
 import { eq, and, desc } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 import { createAutomationSchema } from '@/lib/automations/schema';
 
 export async function GET(req: Request) {
@@ -12,15 +13,12 @@ export async function GET(req: Request) {
     const items = await db.select()
       .from(automations)
       .where(eq(automations.accountId, accountId))
-      .orderBy(desc(automations.createdAt));
+      .orderBy(desc(automations.createdAt))
+      .limit(200);
 
     return NextResponse.json(items);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[GET /api/zenith/automations]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[GET /api/zenith/automations]');
   }
 }
 
@@ -50,11 +48,7 @@ export async function POST(req: Request) {
     }).returning();
 
     return NextResponse.json(created, { status: 201 });
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[POST /api/zenith/automations]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[POST /api/zenith/automations]');
   }
 }

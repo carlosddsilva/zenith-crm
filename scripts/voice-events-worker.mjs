@@ -1,6 +1,8 @@
+import http from "node:http";
+
 const APP_BASE_URL =
   normalizeBaseUrl(
-    process.env.VOICE_WORKER_APP_URL ??
+    process.env.ZENITH_APP_URL ??
       "http://127.0.0.1:3000",
   );
 
@@ -13,6 +15,19 @@ const DISCOVERY_INTERVAL_MS =
       .VOICE_WORKER_DISCOVERY_INTERVAL_MS,
     30000,
   );
+
+const HEALTH_PORT = Number(process.env.WORKER_HEALTH_PORT || "3002");
+let lastDiscoverySuccessAt = 0;
+
+const healthServer = http.createServer((request, response) => {
+  const live = request.url === "/live";
+  const ready = request.url === "/ready" && Date.now() - lastDiscoverySuccessAt < Math.max(DISCOVERY_INTERVAL_MS * 3, 60_000);
+  response.statusCode = live || ready ? 200 : 503;
+  response.setHeader("Content-Type", "application/json");
+  response.end(JSON.stringify({ status: live || ready ? "ok" : "unavailable" }));
+});
+
+healthServer.listen(HEALTH_PORT, "0.0.0.0");
 
 const RECONNECT_MIN_MS =
   2000;
@@ -347,11 +362,8 @@ function resolveEventChannel(
       console.warn(
         "[voice-worker] Event session does not match any configured channel",
         {
-          gateway:
-            group.baseUrl,
-
-          sessionId:
-            eventSessionId,
+          eventType:
+            getEventType(event),
         },
       );
 
@@ -379,9 +391,6 @@ function resolveEventChannel(
   console.warn(
     "[voice-worker] Ambiguous voice event without sessionId",
     {
-      gateway:
-        group.baseUrl,
-
       channels:
         group.channels.length,
 
@@ -481,35 +490,16 @@ async function forwardVoiceEvent(
     );
 
   if (!response.ok) {
-    const responseBody =
-      await response
-        .text()
-        .catch(
-          () => "",
-        );
-
     console.error(
       "[voice-worker] Voice event forwarding failed",
       {
-        gateway:
-          group.baseUrl,
-
         channelId:
           channel.channelId,
-
-        sessionId:
-          channel.sessionId,
 
         eventType,
 
         status:
           response.status,
-
-        response:
-          responseBody.slice(
-            0,
-            500,
-          ),
       },
     );
 
@@ -519,14 +509,8 @@ async function forwardVoiceEvent(
   console.log(
     "[voice-worker] Voice event forwarded",
     {
-      gateway:
-        group.baseUrl,
-
       channelId:
         channel.channelId,
-
-      sessionId:
-        channel.sessionId,
 
       eventType,
     },
@@ -613,9 +597,6 @@ async function consumeSse(
         console.log(
           "[voice-worker] SSE event",
           {
-            gateway:
-              group.baseUrl,
-
             type:
               eventType,
           },
@@ -630,19 +611,13 @@ async function consumeSse(
           console.error(
             "[voice-worker] Event processing failed",
             {
-              gateway:
-                group.baseUrl,
-
               type:
                 eventType,
 
-              error:
-                error instanceof
-                Error
-                  ? error.message
-                  : String(
-                      error,
-                    ),
+              errorCode:
+                error instanceof Error
+                  ? error.name
+                  : "unknown_error",
             },
           );
         }
@@ -713,17 +688,14 @@ async function runGatewayListener(
       console.log(
         "[voice-worker] SSE connected",
         {
-          gateway:
-            group.baseUrl,
-
           channels:
             group.channels
               .length,
 
-          sessions:
+          channelIds:
             group.channels.map(
               (channel) =>
-                channel.sessionId,
+                channel.channelId,
             ),
         },
       );
@@ -757,16 +729,10 @@ async function runGatewayListener(
       console.error(
         "[voice-worker] SSE connection failed",
         {
-          gateway:
-            group.baseUrl,
-
-          error:
-            error instanceof
-            Error
-              ? error.message
-              : String(
-                  error,
-                ),
+          errorCode:
+            error instanceof Error
+              ? error.name
+              : "unknown_error",
 
           retryInMs:
             reconnectDelay,
@@ -790,11 +756,6 @@ async function runGatewayListener(
 
   console.log(
     "[voice-worker] SSE listener stopped",
-    {
-      gateway:
-        entry.group
-          .baseUrl,
-    },
   );
 }
 
@@ -911,14 +872,7 @@ async function reconcileChannelHistory(
       );
     }
 
-    /*
-     * Neste momento o webhook lifecycle
-     * existente esta implementado para inbound.
-     * Nao tentamos reconciliar outbound aqui.
-     */
     if (
-      row?.direction !==
-        "inbound" ||
       row?.status !==
         "ended" ||
       !callId
@@ -992,21 +946,12 @@ async function reconcileChannelHistory(
       console.log(
         "[voice-worker] History call reconciled",
         {
-          gateway:
-            group.baseUrl,
-
           channelId:
             channel.channelId,
-
-          sessionId:
-            channel.sessionId,
 
           callId,
 
           endedAt,
-
-          reason:
-            reason || null,
         },
       );
     }
@@ -1050,21 +995,13 @@ async function reconcileGatewayHistories(
         console.error(
           "[voice-worker] History reconciliation failed",
           {
-            gateway:
-              group.baseUrl,
-
             channelId:
               channel.channelId,
 
-            sessionId:
-              channel.sessionId,
-
-            error:
+            errorCode:
               error instanceof Error
-                ? error.message
-                : String(
-                    error,
-                  ),
+                ? error.name
+                : "unknown_error",
           },
         );
       }
@@ -1169,9 +1106,6 @@ async function main() {
   console.log(
     "[voice-worker] Starting",
     {
-      appBaseUrl:
-        APP_BASE_URL,
-
       discoveryIntervalMs:
         DISCOVERY_INTERVAL_MS,
     },
@@ -1198,6 +1132,8 @@ async function main() {
         groups,
       );
 
+      lastDiscoverySuccessAt = Date.now();
+
       console.log(
         "[voice-worker] Discovery complete",
         {
@@ -1215,12 +1151,12 @@ async function main() {
       ) {
         console.error(
           "[voice-worker] Discovery failed",
-          error instanceof
-          Error
-            ? error.message
-            : String(
-                error,
-              ),
+          {
+            errorCode:
+              error instanceof Error
+                ? error.name
+                : "unknown_error",
+          },
         );
       }
     }
@@ -1233,6 +1169,7 @@ async function main() {
   }
 
   await stopAllListeners();
+  await new Promise((resolve) => healthServer.close(resolve));
 }
 
 function shutdown(
@@ -1265,15 +1202,16 @@ main().catch(
   (error) => {
     console.error(
       "[voice-worker] Fatal error",
-      error,
+      {
+        errorCode:
+          error instanceof Error
+            ? error.name
+            : "unknown_error",
+      },
     );
 
     process.exitCode =
       1;
   },
 );
-
-
-
-
 

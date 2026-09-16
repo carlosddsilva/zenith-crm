@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, varchar, integer, jsonb, unique } from 'drizzle-orm/pg-core';
+import { index, pgTable, uuid, text, timestamp, varchar, integer, jsonb, unique } from 'drizzle-orm/pg-core';
 import { accounts } from './identity';
 import { users } from './identity';
 import { messagingChannels } from './messaging';
@@ -20,7 +20,9 @@ export const broadcasts = pgTable('broadcasts', {
   createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  index('broadcasts_account_status_created_idx').on(table.accountId, table.status, table.createdAt),
+]);
 
 export const broadcastRecipients = pgTable('broadcast_recipients', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -40,6 +42,7 @@ export const broadcastRecipients = pgTable('broadcast_recipients', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => {
   return {
-    unq_broadcast_contact: unique('unq_broadcast_contact').on(table.broadcastId, table.contactId)
+    unq_broadcast_contact: unique('unq_broadcast_contact').on(table.broadcastId, table.contactId),
+    accountBroadcastStatusIdx: index('broadcast_recipients_account_broadcast_status_idx').on(table.accountId, table.broadcastId, table.status),
   }
 });

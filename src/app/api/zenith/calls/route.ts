@@ -21,7 +21,6 @@ import {
 } from "@/lib/db/client";
 
 import {
-  callEvents,
   calls,
   contacts,
 } from "@/lib/db/schema";
@@ -38,6 +37,12 @@ import {
 import {
   normalizePhone,
 } from "@/lib/whatsapp/phone-utils";
+
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
 
 function normalizeOutboundPhone(
   value: string,
@@ -382,6 +387,14 @@ export async function POST(
       "agent",
     );
 
+  const rateLimit = checkRateLimit(
+    `call:${context.accountId}:${context.userId}`,
+    RATE_LIMITS.call,
+  );
+  if (!rateLimit.success) {
+    return rateLimitResponse(rateLimit);
+  }
+
   const body =
     (await request.json()) as {
       to?:
@@ -441,6 +454,15 @@ export async function POST(
 
           phoneNormalized:
             contacts.phoneNormalized,
+
+          isBlocked:
+            contacts.isBlocked,
+
+          optOut:
+            contacts.optOut,
+
+          anonymizedAt:
+            contacts.anonymizedAt,
         })
         .from(contacts)
         .where(
@@ -470,6 +492,22 @@ export async function POST(
       );
     }
 
+    if (
+      contact.isBlocked ||
+      contact.optOut ||
+      contact.anonymizedAt
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Contato bloqueado para novas chamadas.",
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
     if (!to) {
       to =
         normalizeOutboundPhone(
@@ -491,6 +529,52 @@ export async function POST(
       },
       {
         status: 400,
+      },
+    );
+  }
+
+  /*
+   * Impede contornar bloqueio/LGPD discando o mesmo
+   * numero sem enviar contact_id.
+   */
+  const [restrictedContact] =
+    await db
+      .select({
+        id: contacts.id,
+      })
+      .from(contacts)
+      .where(
+        and(
+          eq(
+            contacts.accountId,
+            context.accountId,
+          ),
+          eq(
+            contacts.phoneNormalized,
+            to,
+          ),
+          or(
+            eq(
+              contacts.isBlocked,
+              true,
+            ),
+            eq(
+              contacts.optOut,
+              true,
+            ),
+          )!,
+        ),
+      )
+      .limit(1);
+
+  if (restrictedContact) {
+    return NextResponse.json(
+      {
+        error:
+          "Contato bloqueado para novas chamadas.",
+      },
+      {
+        status: 409,
       },
     );
   }
@@ -526,11 +610,14 @@ export async function POST(
             : null,
       });
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Falha ao reservar canal de voz.";
-    console.error("[voice call route] Reservation error:", error);
+    console.error("[voice call route] reservation failed", {
+      errorCode:
+        error instanceof VoiceProviderError
+          ? error.code
+          : error instanceof Error
+            ? error.name
+            : "UnknownError",
+    });
 
     return NextResponse.json(
       {
@@ -653,11 +740,16 @@ export async function POST(
       },
     );
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Falha ao iniciar chamada.";
-    console.error("[voice call route] Dial error:", error);
+    const errorCode =
+      error instanceof VoiceProviderError
+        ? error.code
+        : error instanceof Error
+          ? error.name
+          : "UnknownError";
+    console.error("[voice call route] dial failed", {
+      errorCode,
+      callId: created.id,
+    });
 
     await transitionCallState({
       accountId:
@@ -673,7 +765,7 @@ export async function POST(
         "provider.call.failed",
 
       failureReason:
-        message,
+        errorCode,
 
       payload: {
         provider:

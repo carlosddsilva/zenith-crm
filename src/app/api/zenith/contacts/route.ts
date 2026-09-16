@@ -12,6 +12,7 @@ import {
 
 import { db } from "@/lib/db/client";
 import {
+  companies,
   contacts,
   contactTags,
   tags,
@@ -22,8 +23,21 @@ import {
 } from "@/lib/auth/zenith-account";
 import { normalizePhone } from "@/lib/whatsapp/phone-utils";
 
+async function companyBelongsToAccount(companyId: unknown, accountId: string) {
+  if (companyId === null || companyId === undefined || companyId === "") return true;
+  if (typeof companyId !== "string") return false;
+  const [company] = await db
+    .select({ id: companies.id })
+    .from(companies)
+    .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+    .limit(1);
+  return Boolean(company);
+}
+
 function errorResponse(error: unknown) {
-  console.error("[zenith contacts]", error);
+  console.error("[zenith contacts]", {
+    errorCode: error instanceof Error ? error.name : "UnknownError",
+  });
 
   if (
     typeof error === "object" &&
@@ -271,35 +285,37 @@ export async function POST(request: Request) {
       );
     }
 
-    const [contact] = await db
-      .insert(contacts)
-      .values({
-        accountId: context.accountId,
-        userId: context.userId,
-        phone,
-        phoneNormalized: normalized,
-        name: body.name?.trim() || null,
-        email: body.email?.trim() || null,
-        company: body.company?.trim() || null,
-        companyId: body.company_id || null,
-        avatarUrl:
-          body.avatar_url?.trim() || null,
-      })
-      .returning();
+    if (!(await companyBelongsToAccount(body.company_id, context.accountId))) {
+      return NextResponse.json({ error: "Invalid company_id" }, { status: 400 });
+    }
 
-    // Publish Automation Events
-    try {
+    const contact = await db.transaction(async (tx) => {
+      const [newContact] = await tx
+        .insert(contacts)
+        .values({
+          accountId: context.accountId,
+          userId: context.userId,
+          phone,
+          phoneNormalized: normalized,
+          name: body.name?.trim() || null,
+          email: body.email?.trim() || null,
+          company: body.company?.trim() || null,
+          companyId: body.company_id || null,
+          avatarUrl: body.avatar_url?.trim() || null,
+        })
+        .returning();
+
       const { publishEvent } = await import('@/lib/events/bus');
-      publishEvent({
+      await publishEvent(tx, {
         accountId: context.accountId,
         triggerType: 'contact.created',
         entityType: 'contact',
-        entityId: contact.id,
-        payload: { contact },
+        entityId: newContact.id,
+        payload: { contact: newContact },
       });
-    } catch (evtErr) {
-      console.error('[EventBus] Failed to publish contact.created:', evtErr);
-    }
+
+      return newContact;
+    });
 
     return NextResponse.json(
       {

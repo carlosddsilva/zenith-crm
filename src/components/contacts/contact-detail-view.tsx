@@ -13,12 +13,7 @@ import type {
   CustomField,
   ContactCustomValue,
   Deal,
-  MessageTemplate,
 } from '@/types';
-import {
-  TemplatePicker,
-  type TemplateSendValues,
-} from '@/components/inbox/template-picker';
 import { CompanySelector } from '@/components/companies/company-selector';
 import { ActivityTimeline } from '@/components/activities/activity-timeline';
 import {
@@ -48,7 +43,6 @@ import {
   Save,
   X,
   DollarSign,
-  LayoutTemplate,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -76,8 +70,6 @@ export function ContactDetailView({
   // Send template — lets the business initiate (or re-open) a conversation
   // with this contact by sending an approved template. The send route
   // find-or-creates the conversation, so no inbound message is required.
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [sendingTemplate, setSendingTemplate] = useState(false);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -92,11 +84,10 @@ export function ContactDetailView({
   const [contactTagIds, setContactTagIds] = useState<string[]>([]);
   const [savingTags, setSavingTags] = useState(false);
 
-  // Notes tab
-  const [notes, setNotes] = useState<ContactNote[]>([]);
+  // Timeline (Notes/Activities)
   const [newNote, setNewNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
-  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [timelineRefresh, setTimelineRefresh] = useState(0);
 
   // Custom fields tab
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
@@ -105,20 +96,14 @@ export function ContactDetailView({
   const [loadingCustom, setLoadingCustom] = useState(false);
 
   // Deals tab
-  const [deals, setDeals] = useState<Deal[]>([]);
+  const [deals, setDeals] = useState<any[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
 
-  // Tasks tab
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [loadingTasks, setLoadingTasks] = useState(false);
-
-  // Conversations tab
-  const [conversations, setConversations] = useState<any[]>([]);
-  const [loadingConversations, setLoadingConversations] = useState(false);
-
-  // Calls tab
-  const [calls, setCalls] = useState<any[]>([]);
-  const [loadingCalls, setLoadingCalls] = useState(false);
+  const [notes, setNotes] = useState<any[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const deleteNote = useCallback(async (id: string) => {
+    // stub
+  }, []);
 
   const fetchContact = useCallback(
     async (signal?: AbortSignal) => {
@@ -172,26 +157,6 @@ export function ContactDetailView({
     [contactId]
   );
 
-  const fetchNotes = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!contactId) return;
-      setLoadingNotes(true);
-
-      try {
-        const res = await fetch(`/api/zenith/notes?contactId=${contactId}`, {
-          signal,
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setNotes(data);
-        }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') console.error(err);
-      }
-      setLoadingNotes(false);
-    },
-    [contactId]
-  );
 
   const fetchCustomFields = useCallback(
     async (signal?: AbortSignal) => {
@@ -240,67 +205,7 @@ export function ContactDetailView({
     [contactId]
   );
 
-  const fetchTasks = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!contactId) return;
-      setLoadingTasks(true);
-      try {
-        const res = await fetch(`/api/zenith/tasks?contactId=${contactId}`, {
-          signal,
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setTasks(data);
-        }
-      } catch (e: any) {
-        if (e.name !== 'AbortError') console.error(e);
-      }
-      setLoadingTasks(false);
-    },
-    [contactId]
-  );
 
-  const fetchConversations = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!contactId) return;
-      setLoadingConversations(true);
-      try {
-        // Endpoint depends on architecture, maybe /api/zenith/conversations?contactId=...
-        const res = await fetch(
-          `/api/zenith/conversations?contactId=${contactId}`,
-          { signal }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setConversations(data.items || data || []);
-        }
-      } catch (e: any) {
-        if (e.name !== 'AbortError') console.error(e);
-      }
-      setLoadingConversations(false);
-    },
-    [contactId]
-  );
-
-  const fetchCalls = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!contactId) return;
-      setLoadingCalls(true);
-      try {
-        const res = await fetch(`/api/zenith/calls?contactId=${contactId}`, {
-          signal,
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCalls(data.items || data || []);
-        }
-      } catch (e: any) {
-        if (e.name !== 'AbortError') console.error(e);
-      }
-      setLoadingCalls(false);
-    },
-    [contactId]
-  );
 
   useEffect(() => {
     if (open && contactId) {
@@ -313,12 +218,8 @@ export function ContactDetailView({
 
       fetchContact(signal);
       fetchTags(signal);
-      fetchNotes(signal);
       fetchCustomFields(signal);
       fetchDeals(signal);
-      fetchTasks(signal);
-      fetchConversations(signal);
-      fetchCalls(signal);
 
       return () => {
         controller.abort();
@@ -329,12 +230,8 @@ export function ContactDetailView({
     contactId,
     fetchContact,
     fetchTags,
-    fetchNotes,
     fetchCustomFields,
     fetchDeals,
-    fetchTasks,
-    fetchConversations,
-    fetchCalls,
   ]);
 
   async function copyPhone() {
@@ -418,7 +315,7 @@ export function ContactDetailView({
         toast.error(t('toastNoteAddFailed'));
       } else {
         setNewNote('');
-        fetchNotes();
+        setTimelineRefresh(prev => prev + 1);
         toast.success(t('toastNoteAdded'));
       }
     } catch (err) {
@@ -427,12 +324,7 @@ export function ContactDetailView({
     setSavingNote(false);
   }
 
-  async function deleteNote(noteId: string) {
-    // Delete note currently not implemented in API, fallback to UI hiding if needed,
-    // or we can just comment it out since notes shouldn't be deleted per requirements.
-    // For now we'll just show an error.
-    toast.error('Delete note is not supported in this version.');
-  }
+
 
   async function saveCustomFields() {
     if (!contactId) return;
@@ -455,48 +347,6 @@ export function ContactDetailView({
       toast.error(t('toastCustomFieldsFailed'));
     }
     setSavingCustom(false);
-  }
-
-  async function handleSendTemplate(
-    template: MessageTemplate,
-    values: TemplateSendValues
-  ) {
-    if (!contactId) return;
-    setSendingTemplate(true);
-    try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // No conversation_id — the route find-or-creates one for this
-          // contact, mirroring the inbox template-send payload otherwise.
-          contact_id: contactId,
-          message_type: 'template',
-          template_name: template.name,
-          template_language: template.language,
-          template_message_params: {
-            body: values.body,
-            headerText: values.headerText,
-            buttonParams: values.buttonParams,
-          },
-          template_params: values.body,
-        }),
-      });
-
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const reason = payload?.error || `HTTP ${res.status}`;
-        toast.error(t('toastTemplateFailed', { reason }));
-        return;
-      }
-
-      toast.success(t('toastTemplateSent', { name: template.name }));
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : 'network error';
-      toast.error(`Failed to send template: ${reason}`);
-    } finally {
-      setSendingTemplate(false);
-    }
   }
 
   function getInitials(name?: string | null) {
@@ -564,21 +414,6 @@ export function ContactDetailView({
                       )}
                     </div>
                   </div>
-                </div>
-                <div className="mt-3">
-                  <Button
-                    size="sm"
-                    onClick={() => setTemplatePickerOpen(true)}
-                    disabled={sendingTemplate}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90"
-                  >
-                    {sendingTemplate ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <LayoutTemplate className="size-4" />
-                    )}
-                    {t('sendTemplateBtn')}
-                  </Button>
                 </div>
               </SheetHeader>
 
@@ -952,114 +787,12 @@ export function ContactDetailView({
                   )}
                 </TabsContent>
 
-                {/* Tasks Tab */}
-                <TabsContent
-                  value="tasks"
-                  className="flex-1 overflow-y-auto px-4 py-3"
-                >
-                  {loadingTasks ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="text-primary size-5 animate-spin" />
-                    </div>
-                  ) : tasks.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">
-                      No tasks found.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {tasks.map((task) => (
-                        <div
-                          key={task.id}
-                          className="border-border bg-muted/50 rounded-lg border p-3"
-                        >
-                          <p className="text-foreground text-sm font-medium">
-                            {task.title}
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            {task.description}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
 
-                {/* Conversations Tab */}
-                <TabsContent
-                  value="conversations"
-                  className="flex-1 overflow-y-auto px-4 py-3"
-                >
-                  {loadingConversations ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="text-primary size-5 animate-spin" />
-                    </div>
-                  ) : conversations.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">
-                      No conversations found.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {conversations.map((conv) => (
-                        <div
-                          key={conv.id}
-                          className="border-border bg-muted/50 rounded-lg border p-3"
-                        >
-                          <p className="text-foreground text-sm font-medium">
-                            Conversation #{conv.id.substring(0, 8)}
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            {new Date(
-                              conv.updated_at || conv.created_at
-                            ).toLocaleString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-
-                {/* Calls Tab */}
-                <TabsContent
-                  value="calls"
-                  className="flex-1 overflow-y-auto px-4 py-3"
-                >
-                  {loadingCalls ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="text-primary size-5 animate-spin" />
-                    </div>
-                  ) : calls.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">
-                      No calls found.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {calls.map((call) => (
-                        <div
-                          key={call.id}
-                          className="border-border bg-muted/50 rounded-lg border p-3"
-                        >
-                          <p className="text-foreground text-sm font-medium capitalize">
-                            {call.direction} Call
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            {call.status} -{' '}
-                            {new Date(call.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
               </Tabs>
             </div>
           )}
         </SheetContent>
       </Sheet>
-      <TemplatePicker
-        open={templatePickerOpen}
-        onOpenChange={setTemplatePickerOpen}
-        onSelect={handleSendTemplate}
-      />
     </>
   );
 }

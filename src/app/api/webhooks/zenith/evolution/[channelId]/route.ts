@@ -22,6 +22,7 @@ import {
   beginWebhookEvent,
   finishWebhookEvent,
 } from "@/lib/messaging";
+import { isUuid } from "@/lib/validation/uuid";
 
 function secureEquals(
   left: string,
@@ -56,6 +57,9 @@ export async function POST(
 ) {
   const { channelId } =
     await params;
+  if (!isUuid(channelId)) {
+    return NextResponse.json({ error: "Invalid channel identifier" }, { status: 400 });
+  }
 
   const expectedToken =
     process.env

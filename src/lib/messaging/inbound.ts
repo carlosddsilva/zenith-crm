@@ -1,4 +1,4 @@
-﻿import {
+import {
   and,
   eq,
   sql,
@@ -599,6 +599,9 @@ export async function persistInboundMessage(
           unreadCount:
             sql`${conversations.unreadCount} + 1`,
 
+          firstUnrepliedMessageAt:
+            sql`COALESCE(${conversations.firstUnrepliedMessageAt}, ${occurredAt})`,
+
           updatedAt:
             new Date(),
         })
@@ -616,10 +619,44 @@ export async function persistInboundMessage(
           ),
         );
 
+      const { publishEvent } = await import('@/lib/events/bus');
+      await publishEvent(tx, {
+        accountId: channel.accountId,
+        triggerType: 'message.received',
+        entityType: 'message',
+        entityId: message.id,
+        payload: {
+          messageId: message.id,
+          conversationId: conversation.id,
+          contactId: contact.id,
+        },
+      });
+
+      const { enqueueAiReply } = await import("@/lib/ai/jobs");
+      await enqueueAiReply(tx, {
+        accountId: channel.accountId,
+        conversationId: conversation.id,
+        contactId: contact.id,
+        sourceMessageId: message.id,
+      });
+
+      if (!conversation.firstUnrepliedMessageAt) {
+        await publishEvent(tx, {
+          accountId: channel.accountId,
+          triggerType: 'conversation.sla_started',
+          entityType: 'conversation',
+          entityId: conversation.id,
+          payload: {
+            conversationId: conversation.id,
+            contactId: contact.id,
+          },
+        });
+      }
+
       return {
         messageId:
           message.id,
-
+        
         conversationId:
           conversation.id,
 

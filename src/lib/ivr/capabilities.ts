@@ -28,10 +28,7 @@ export const ivrCapabilities:
    * ambiente funcional usado como referencia.
    *
    * SUPORTADOS:
-   * - Audio / WAV
-   * - TTS
-   * - Departamento / Fila
-   * - Ramal
+   * - Departamento / Fila (handoff humano)
    * - Horario
    * - Condicao
    * - Encerrar
@@ -58,8 +55,13 @@ export const ivrCapabilities:
     "call.hangup":
       "ready",
 
+    /*
+     * O gateway vendorizado neste SHA nao registra
+     * POST .../playback. Manter como unsupported
+     * impede publicar um fluxo que falharia ao vivo.
+     */
     "audio.play":
-      "ready",
+      "unsupported",
 
     "tts.speak":
       "planned",
@@ -71,7 +73,7 @@ export const ivrCapabilities:
       "unsupported",
 
     "queue.route":
-      "planned",
+      "ready",
 
     "extension.route":
       "planned",

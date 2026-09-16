@@ -1187,6 +1187,9 @@ export async function runIvrExecution(
     try {
       const runtimeContext:
         IvrRuntimeContext = {
+        accountId:
+          execution.accountId,
+
         executionId:
           execution.id,
 

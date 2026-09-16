@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   pgTable,
   text,
@@ -38,6 +39,10 @@ export const contacts = pgTable(
     email: text("email"),
     company: text("company"),
     avatarUrl: text("avatar_url"),
+
+    isBlocked: boolean("is_blocked").notNull().default(false),
+    optOut: boolean("opt_out").notNull().default(false),
+    anonymizedAt: timestamp("anonymized_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", {
       withTimezone: true,

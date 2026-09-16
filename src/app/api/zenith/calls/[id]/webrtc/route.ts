@@ -52,8 +52,7 @@ function handleError(
   ) {
     return NextResponse.json(
       {
-        error:
-          error.message,
+        error: "Falha no provedor de voz.",
         code:
           error.code,
       },
@@ -88,7 +87,9 @@ function handleError(
 
   console.error(
     "[voice call webrtc]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   return NextResponse.json(
@@ -249,6 +250,21 @@ export async function POST(
             "A chamada ja esta encerrada.",
           state:
             call.state,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
+    if (
+      call.assignedAgentId !==
+        context.userId
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "A chamada pertence a outro operador ou ainda nao foi assumida.",
         },
         {
           status: 409,

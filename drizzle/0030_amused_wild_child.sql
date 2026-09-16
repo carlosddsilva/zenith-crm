@@ -1,0 +1,6 @@
+CREATE UNIQUE INDEX "appointments_id_account_unique" ON "appointments" USING btree ("id","account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "google_calendar_connections_id_account_unique" ON "google_calendar_connections" USING btree ("id","account_id");--> statement-breakpoint
+ALTER TABLE "google_calendar_event_links" ADD CONSTRAINT "google_calendar_event_links_connection_tenant_fk" FOREIGN KEY ("connection_id","account_id") REFERENCES "public"."google_calendar_connections"("id","account_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "google_calendar_event_links" ADD CONSTRAINT "google_calendar_event_links_appointment_tenant_fk" FOREIGN KEY ("appointment_id","account_id") REFERENCES "public"."appointments"("id","account_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "google_calendar_sync_jobs" ADD CONSTRAINT "google_calendar_sync_jobs_connection_tenant_fk" FOREIGN KEY ("connection_id","account_id") REFERENCES "public"."google_calendar_connections"("id","account_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "google_calendar_sync_jobs" ADD CONSTRAINT "google_calendar_sync_jobs_appointment_tenant_fk" FOREIGN KEY ("appointment_id","account_id") REFERENCES "public"."appointments"("id","account_id") ON DELETE no action ON UPDATE no action;

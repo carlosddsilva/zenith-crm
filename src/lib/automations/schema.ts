@@ -16,6 +16,8 @@ const TRIGGER_TYPES: [AutomationTriggerType, ...AutomationTriggerType[]] = [
   'task.completed',
   'conversation.created',
   'message.received',
+  'conversation.sla_started',
+  'conversation.sla_breached',
 ];
 
 const CONDITION_OPERATORS: [AutomationConditionOperator, ...AutomationConditionOperator[]] = [
@@ -34,6 +36,7 @@ const ACTION_TYPES: [AutomationActionType, ...AutomationActionType[]] = [
   'task.complete',
   'note.create',
   'send_message',
+  'conversation.assign',
 ];
 
 const STATUSES: [AutomationStatus, ...AutomationStatus[]] = ['draft', 'active', 'paused', 'archived'];
@@ -44,10 +47,16 @@ export const automationConditionSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean()]).optional(),
 });
 
-export const automationActionSchema = z.object({
-  type: z.enum(ACTION_TYPES),
-  params: z.record(z.string(), z.any()), // Validated more strictly during execution by action executors
-});
+export const automationActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('contact.add_tag'), params: z.object({ tagId: z.string().uuid() }) }),
+  z.object({ type: z.literal('contact.remove_tag'), params: z.object({ tagId: z.string().uuid() }) }),
+  z.object({ type: z.literal('deal.move_stage'), params: z.object({ stageId: z.string().uuid() }) }),
+  z.object({ type: z.literal('task.create'), params: z.object({ title: z.string().min(1), priority: z.enum(['low', 'normal', 'high']), assigneeId: z.string().uuid().optional() }) }),
+  z.object({ type: z.literal('task.complete'), params: z.object({}) }),
+  z.object({ type: z.literal('note.create'), params: z.object({ content: z.string().min(1) }) }),
+  z.object({ type: z.literal('send_message'), params: z.object({ message: z.string().min(1) }) }),
+  z.object({ type: z.literal('conversation.assign'), params: z.object({ assigneeId: z.string().uuid() }) }),
+]);
 
 export const createAutomationSchema = z.object({
   name: z.string().min(1, 'Name is required'),

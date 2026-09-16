@@ -1,53 +1,29 @@
-// ============================================================
-// Knowledge-base chunking.
-//
-// Splits a pasted document into retrieval-sized pieces. Paragraph-aware
-// (FAQ/policy docs are naturally paragraph-delimited, and each Q&A stays
-// intact), greedily packed up to `maxChars`, with oversized paragraphs
-// hard-split as a fallback. Pure + deterministic so it's trivially
-// testable and produces stable chunk boundaries across re-ingests.
-// ============================================================
+const MAX_CHUNK_CHARS = 2_400;
+const OVERLAP_CHARS = 240;
 
-const DEFAULT_MAX_CHARS = 1200
-
-export function chunkText(
-  content: string,
-  opts: { maxChars?: number } = {},
-): string[] {
-  const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS
-  const text = content.replace(/\r\n/g, '\n').trim()
-  if (!text) return []
-
-  const paragraphs = text
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-
-  const chunks: string[] = []
-  let current = ''
-
-  const flush = () => {
-    const trimmed = current.trim()
-    if (trimmed) chunks.push(trimmed)
-    current = ''
-  }
-
-  for (const para of paragraphs) {
-    if (para.length > maxChars) {
-      // Paragraph alone exceeds the budget — flush what we have, then
-      // hard-split it into fixed windows.
-      flush()
-      for (let i = 0; i < para.length; i += maxChars) {
-        const slice = para.slice(i, i + maxChars).trim()
-        if (slice) chunks.push(slice)
-      }
-      continue
-    }
-    // +2 accounts for the "\n\n" joiner we add between paragraphs.
-    if (current && current.length + 2 + para.length > maxChars) flush()
-    current = current ? `${current}\n\n${para}` : para
-  }
-  flush()
-
-  return chunks
+export function estimateTokens(text: string) {
+  return Math.max(1, Math.ceil(text.length / 4));
 }
+
+export function chunkText(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (!normalized) return [];
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < normalized.length) {
+    let end = Math.min(start + MAX_CHUNK_CHARS, normalized.length);
+    if (end < normalized.length) {
+      const boundary = Math.max(
+        normalized.lastIndexOf("\n\n", end),
+        normalized.lastIndexOf(". ", end),
+      );
+      if (boundary > start + MAX_CHUNK_CHARS / 2) end = boundary + 1;
+    }
+    const chunk = normalized.slice(start, end).trim();
+    if (chunk) chunks.push(chunk);
+    if (end >= normalized.length) break;
+    start = Math.max(start + 1, end - OVERLAP_CHARS);
+  }
+  return chunks;
+}
+

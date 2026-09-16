@@ -38,7 +38,9 @@ function errorResponse(
 ) {
   console.error(
     "[zenith messaging-channels]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   if (

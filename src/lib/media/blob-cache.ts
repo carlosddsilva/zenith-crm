@@ -3,15 +3,12 @@
  *
  * A `messages.media_url` is one of two very different things:
  *
- *   1. INBOUND — `/api/whatsapp/media/<mediaId>`, our own auth-gated proxy
- *      (`src/app/api/whatsapp/media/[mediaId]/route.ts`). Meta only hands
- *      the bytes to a request carrying the account's access token, so the
- *      browser can't reach them on its own, and `next.config.ts` puts
- *      `Cache-Control: no-store` on every `/api/*` response, so nothing
- *      caches them at the HTTP layer either.
+ *   1. INBOUND — `/api/zenith/media/<messageId>`, our auth-gated provider
+ *      proxy. Provider media may require account credentials, so the browser
+ *      cannot fetch it directly; API responses are intentionally `no-store`.
  *
- *   2. OUTBOUND — a public `chat-media` bucket URL (migration 023). Plain
- *      https that the browser fetches and caches like any other image.
+ *   2. OUTBOUND — a public HTTPS URL returned by the configured messaging
+ *      provider. The browser fetches and caches it like any other image.
  *
  * The thumbnail, the lightbox and a download all want the same bytes. For
  * (1) that would otherwise be three separate multi-MB round trips through
@@ -24,13 +21,12 @@
  */
 
 /** Prefix of the auth-gated proxy — these need a credentialed fetch. */
-const PROXY_PREFIX = "/api/whatsapp/media/";
+const PROXY_PREFIX = "/api/zenith/media/";
 
 /**
  * How many blobs to hold. Worst case is a thread that's nothing but
- * photos; 30 entries against the 5 MB image cap (`MEDIA_MAX_BYTES_BY_KIND`
- * in `@/lib/storage/upload-media`) bounds the footprint while comfortably
- * covering "scroll back, page through the last dozen photos".
+ * photos; 30 entries bounds the footprint while comfortably covering
+ * "scroll back, page through the last dozen photos".
  */
 const MAX_CACHED = 30;
 
@@ -79,7 +75,7 @@ function remember(url: string, blob: Blob): void {
  * Fetch the bytes behind a `media_url`.
  *
  * Proxy URLs are cached (and concurrent callers de-duplicated); public
- * bucket URLs are fetched straight through, since the browser's own HTTP
+ * provider URLs are fetched straight through, since the browser's own HTTP
  * cache already covers them and a 16 MB video has no business sitting in
  * a JS-side cache.
  *

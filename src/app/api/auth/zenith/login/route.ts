@@ -6,11 +6,17 @@ import { setSessionCookie } from "@/lib/auth/session-cookie";
 import { verifyPassword } from "@/lib/auth/password";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const forwardedFor = request.headers.get("x-forwarded-for");
+    const ipAddress = forwardedFor?.split(",")[0]?.trim() ?? request.headers.get("x-real-ip") ?? "unknown";
+    const rateLimit = checkRateLimit(`login:${ipAddress}`, RATE_LIMITS.login);
+    if (!rateLimit.success) return rateLimitResponse(rateLimit);
+
     const body = await request.json();
 
     const email =
@@ -65,13 +71,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const forwardedFor =
-      request.headers.get("x-forwarded-for");
-
-    const ipAddress =
-      forwardedFor?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip");
-
     const userAgent =
       request.headers.get("user-agent");
 
@@ -94,7 +93,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    console.error("Zenith login error:", error);
+    console.error("[zenith login] failed", {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    });
 
     return NextResponse.json(
       { error: "Não foi possível realizar o login." },

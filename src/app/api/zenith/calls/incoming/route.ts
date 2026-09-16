@@ -14,6 +14,8 @@ import {
   requireZenithRole,
 } from "@/lib/auth/zenith-account";
 
+import { apiErrorResponse } from "@/lib/api/error-response";
+
 import {
   db,
 } from "@/lib/db/client";
@@ -219,19 +221,6 @@ export async function GET() {
       return error;
     }
 
-    console.error(
-      "[incoming voice calls]",
-      error,
-    );
-
-    return NextResponse.json(
-      {
-        error:
-          "Falha ao consultar chamadas recebidas.",
-      },
-      {
-        status: 500,
-      },
-    );
+    return apiErrorResponse(error, "[GET /api/zenith/calls/incoming]");
   }
 }

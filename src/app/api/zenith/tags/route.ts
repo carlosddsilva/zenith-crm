@@ -9,7 +9,9 @@ import {
 } from "@/lib/auth/zenith-account";
 
 function errorResponse(error: unknown) {
-  console.error("[zenith tags]", error);
+  console.error("[zenith tags]", {
+    errorCode: error instanceof Error ? error.name : "UnknownError",
+  });
 
   if (
     typeof error === "object" &&

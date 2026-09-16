@@ -1,16 +1,18 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import {
   and,
   count,
   desc,
   eq,
+  sql,
 } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 
 import {
   contacts,
+  aiConversationControls,
   conversations,
   messages,
 } from "@/lib/db/schema";
@@ -29,10 +31,17 @@ import {
   MessagingProviderError,
 } from "@/lib/messaging";
 
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
+
 import type {
   MessagingContentType,
   MessagingInteractivePayload,
 } from "@/lib/messaging";
+import { cancelActiveEnrollments } from "@/lib/followups/engine";
 
 const contentTypes = [
   "text",
@@ -83,7 +92,12 @@ function errorResponse(
 ) {
   console.error(
     "[zenith conversation messages]",
-    error,
+    {
+      errorCode:
+        error instanceof Error
+          ? error.name
+          : "UnknownError",
+    },
   );
 
   if (
@@ -363,6 +377,14 @@ export async function POST(
       await requireZenithRole(
         "agent",
       );
+
+    const rateLimit = checkRateLimit(
+      `message-send:${context.accountId}:${context.userId}`,
+      RATE_LIMITS.send,
+    );
+    if (!rateLimit.success) {
+      return rateLimitResponse(rateLimit);
+    }
 
     const { id } =
       await params;
@@ -646,6 +668,12 @@ export async function POST(
               lastMessageAt:
                 now,
 
+              firstUnrepliedMessageAt:
+                null,
+
+              slaStatus:
+                "ok",
+
               updatedAt:
                 now,
             })
@@ -662,11 +690,43 @@ export async function POST(
               ),
             );
 
+          await tx
+            .insert(aiConversationControls)
+            .values({
+              accountId: context.accountId,
+              conversationId: id,
+              mode: "paused",
+              generation: 1,
+              reasonCode: "human_message",
+              changedByUserId: context.userId,
+            })
+            .onConflictDoUpdate({
+              target: aiConversationControls.conversationId,
+              set: {
+                mode: "paused",
+                generation: sql`${aiConversationControls.generation} + 1`,
+                reasonCode: "human_message",
+                changedByUserId: context.userId,
+                updatedAt: now,
+              },
+            });
+
+          await tx
+            .update(conversations)
+            .set({ aiAutoreplyDisabled: true })
+            .where(and(eq(conversations.id, id), eq(conversations.accountId, context.accountId)));
+
           return message;
         },
       );
 
     try {
+      await cancelActiveEnrollments(
+        context.accountId,
+        "manual",
+        contact.id,
+      );
+
       const result =
         await provider.send(
           {
@@ -778,10 +838,12 @@ export async function POST(
         { status: 201 },
       );
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Falha no provider de mensageria.";
+      const errorCode =
+        error instanceof MessagingProviderError
+          ? error.code
+          : error instanceof Error
+            ? error.name
+            : "UnknownError";
 
       await db
         .update(messages)
@@ -790,7 +852,7 @@ export async function POST(
             "failed",
 
           transportError:
-            message,
+            errorCode,
         })
         .where(
           eq(
@@ -817,15 +879,13 @@ export async function POST(
           messageId:
             created.id,
 
-          error:
-            message,
+          errorCode,
         },
       );
 
       return NextResponse.json(
         {
-          error:
-            message,
+          error: "Falha ao enviar mensagem.",
 
           item: {
             id:

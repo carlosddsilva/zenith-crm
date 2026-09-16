@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import {
   and,
   asc,
@@ -44,7 +44,9 @@ function isConversationStatus(
 function errorResponse(error: unknown) {
   console.error(
     "[zenith conversations]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   if (
@@ -178,6 +180,9 @@ export async function GET(
       url.searchParams.get("contactId") ??
       url.searchParams.get("contact_id");
 
+    const slaStatus =
+      url.searchParams.get("slaStatus");
+
     const conditions = [
       eq(
         conversations.accountId,
@@ -209,6 +214,16 @@ export async function GET(
         eq(
           conversations.contactId,
           contactId,
+        ),
+      );
+    }
+
+    if (slaStatus) {
+      const statuses = slaStatus.split(",").map(s => s.trim()) as any[];
+      conditions.push(
+        inArray(
+          conversations.slaStatus,
+          statuses,
         ),
       );
     }
@@ -246,6 +261,10 @@ export async function GET(
           conversations.aiReplyCount,
         aiHandoffSummary:
           conversations.aiHandoffSummary,
+        firstUnrepliedMessageAt:
+          conversations.firstUnrepliedMessageAt,
+        slaStatus:
+          conversations.slaStatus,
         createdAt:
           conversations.createdAt,
         updatedAt:
@@ -315,6 +334,10 @@ export async function GET(
           row.aiReplyCount,
         ai_handoff_summary:
           row.aiHandoffSummary,
+        first_unreplied_message_at:
+          row.firstUnrepliedMessageAt,
+        sla_status:
+          row.slaStatus,
         created_at:
           row.createdAt,
         updated_at:

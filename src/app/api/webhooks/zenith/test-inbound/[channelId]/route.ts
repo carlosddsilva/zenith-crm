@@ -9,6 +9,7 @@ import {
 import {
   persistInboundMessageRealtime,
 } from "@/lib/messaging";
+import { isUuid } from "@/lib/validation/uuid";
 
 function secureEquals(
   left: string,
@@ -87,6 +88,9 @@ export async function POST(
   const {
     channelId,
   } = await params;
+  if (!isUuid(channelId)) {
+    return NextResponse.json({ error: "Invalid channel identifier" }, { status: 400 });
+  }
 
   const body =
     (await request.json()) as {
@@ -160,15 +164,14 @@ export async function POST(
   } catch (error) {
     console.error(
       "[test inbound]",
-      error,
+      {
+        errorCode: error instanceof Error ? error.name : "UnknownError",
+      },
     );
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Inbound test failed",
+        error: "Inbound test failed",
       },
       {
         status: 500,

@@ -78,6 +78,12 @@ interface VoiceCallControlsProps {
     ) => void;
 }
 
+function muteStorageKey(
+  callId: string,
+) {
+  return `zenith.voice.call.${callId}.muted`;
+}
+
 async function requestCallAction(
   callId: string,
   action: VoiceAction,
@@ -219,6 +225,9 @@ export function VoiceCallControls({
   const [muted, setMuted] =
     useState(false);
 
+  const recoveryAttemptedRef =
+    useRef(false);
+
   useEffect(
     () => {
       setLocalState(
@@ -243,9 +252,20 @@ export function VoiceCallControls({
             .srcObject =
             null;
         }
+
+        window.localStorage.removeItem(
+          muteStorageKey(
+            callId,
+          ),
+        );
+
+        setMuted(
+          false,
+        );
       }
     },
     [
+      callId,
       state,
     ],
   );
@@ -261,6 +281,120 @@ export function VoiceCallControls({
       };
     },
     [],
+  );
+
+  /*
+   * Depois de F5 a chamada inbound continua
+   * atribuida a este agente no PostgreSQL e o
+   * client_id permanece no localStorage. Recria
+   * somente a ponte WebRTC; nao aceita a chamada
+   * novamente e nao altera o lifecycle.
+   */
+  useEffect(
+    () => {
+      if (
+        localState !== "active" ||
+        connectionRef.current ||
+        recoveryAttemptedRef.current
+      ) {
+        return;
+      }
+
+      recoveryAttemptedRef.current =
+        true;
+
+      let cancelled =
+        false;
+
+      async function recoverMedia() {
+        setBusyAction(
+          "webrtc",
+        );
+
+        try {
+          const connection =
+            await openWaCallsVoiceCall(
+              callId,
+              getVoiceClientId(),
+              null,
+            );
+
+          if (cancelled) {
+            connection.close();
+            return;
+          }
+
+          const recoveredMuted =
+            window.localStorage.getItem(
+              muteStorageKey(
+                callId,
+              ),
+            ) === "true";
+
+          connection.micStream
+            .getAudioTracks()
+            .forEach(
+              (track) => {
+                track.enabled =
+                  !recoveredMuted;
+              },
+            );
+
+          connectionRef.current =
+            connection;
+
+          setMuted(
+            recoveredMuted,
+          );
+
+          if (
+            audioRef.current
+          ) {
+            audioRef.current.srcObject =
+              connection.remoteStream;
+
+            try {
+              await audioRef.current.play();
+            } catch {
+              /* autoPlay pode concluir a reproducao. */
+            }
+          }
+        } catch (error) {
+          if (!cancelled) {
+            console.error(
+              "[zenith-calls] inbound media recovery failed",
+              {
+                errorCode:
+                  error instanceof Error
+                    ? error.name
+                    : "UnknownError",
+              },
+            );
+
+            toast.error(
+              "Chamada ativa, mas nao foi possivel recuperar o audio.",
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setBusyAction(
+              null,
+            );
+          }
+        }
+      }
+
+      void recoverMedia();
+
+      return () => {
+        cancelled =
+          true;
+      };
+    },
+    [
+      callId,
+      localState,
+    ],
   );
 
   function updateState(
@@ -331,6 +465,26 @@ export function VoiceCallControls({
 
       connectionRef.current =
         connection;
+
+      const recoveredMuted =
+        window.localStorage.getItem(
+          muteStorageKey(
+            callId,
+          ),
+        ) === "true";
+
+      connection.micStream
+        .getAudioTracks()
+        .forEach(
+          (track) => {
+            track.enabled =
+              !recoveredMuted;
+          },
+        );
+
+      setMuted(
+        recoveredMuted,
+      );
 
       /*
        * 3. Reproducao do audio recebido
@@ -475,6 +629,16 @@ export function VoiceCallControls({
           null;
       }
 
+      window.localStorage.removeItem(
+        muteStorageKey(
+          callId,
+        ),
+      );
+
+      setMuted(
+        false,
+      );
+
       updateState(
         "ended",
       );
@@ -518,6 +682,21 @@ export function VoiceCallControls({
     setMuted(
       nextMuted,
     );
+
+    if (nextMuted) {
+      window.localStorage.setItem(
+        muteStorageKey(
+          callId,
+        ),
+        "true",
+      );
+    } else {
+      window.localStorage.removeItem(
+        muteStorageKey(
+          callId,
+        ),
+      );
+    }
   }
 
   const displayNumber =

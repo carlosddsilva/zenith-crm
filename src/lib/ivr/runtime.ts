@@ -9,6 +9,13 @@ import type {
 
 export interface IvrRuntimeContext {
   /*
+   * Tenant da execucao. Toda consulta do runtime
+   * deve usar este escopo junto com o ID do recurso.
+   */
+  accountId:
+    string;
+
+  /*
    * ID da execucao IVR.
    */
   executionId:

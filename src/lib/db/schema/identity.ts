@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgEnum,
   pgTable,
   text,
@@ -26,6 +26,12 @@ export const accountStatusEnum = pgEnum("account_status", [
   "disabled",
 ]);
 
+export const systemRoleEnum = pgEnum("system_role", [
+  "user",
+  "superadmin",
+]);
+
+
 export const users = pgTable(
   "users",
   {
@@ -34,6 +40,7 @@ export const users = pgTable(
     name: text("name"),
     passwordHash: text("password_hash"),
     status: userStatusEnum("status").notNull().default("active"),
+    systemRole: systemRoleEnum("system_role").notNull().default("user"),
 
     emailVerifiedAt: timestamp("email_verified_at", {
       withTimezone: true,
@@ -51,6 +58,21 @@ export const users = pgTable(
     uniqueIndex("users_email_unique").on(table.email),
   ],
 );
+
+export const plans = pgTable("plans", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  
+  maxUsers: text("max_users").notNull(), // text instead of integer to support 'unlimited' or parse as Int, or use Integer
+  maxContacts: text("max_contacts").notNull(),
+  maxMonthlyMessages: text("max_monthly_messages").notNull(),
+  price: text("price").notNull(),
+  
+  isPublic: text("is_public").notNull().default("true"),
+  
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const accounts = pgTable(
   "accounts",
@@ -72,6 +94,11 @@ export const accounts = pgTable(
     status: accountStatusEnum("status")
       .notNull()
       .default("active"),
+
+    planId: uuid("plan_id")
+      .references(() => plans.id, {
+        onDelete: "set null",
+      }),
 
     createdAt: timestamp("created_at", {
       withTimezone: true,
@@ -139,3 +166,7 @@ export type AccountMember =
 
 export type NewAccountMember =
   typeof accountMembers.$inferInsert;
+
+export type Plan = typeof plans.$inferSelect;
+export type NewPlan = typeof plans.$inferInsert;
+

@@ -58,7 +58,9 @@ function handleError(
 
   console.error(
     "[ivr draft]",
-    error,
+    {
+      errorCode: error instanceof Error ? error.name : "UnknownError",
+    },
   );
 
   return NextResponse.json(

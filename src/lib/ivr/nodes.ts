@@ -232,34 +232,14 @@ export const ivrNodeCatalog:
       "queue.route",
     ],
 
+    /*
+     * No WaCalls este node libera o owner/bridge do
+     * bot e devolve a chamada para a fila humana.
+     * O handoff encerra a execucao IVR; nao existe
+     * ainda um evento de resultado para ramificar.
+     */
     outputMode:
-      "branches",
-
-    outputs: [
-      {
-        id:
-          "answered",
-
-        label:
-          "Atendida",
-      },
-
-      {
-        id:
-          "timeout",
-
-        label:
-          "Sem atendimento",
-      },
-
-      {
-        id:
-          "unavailable",
-
-        label:
-          "Indisponivel",
-      },
-    ],
+      "none",
   },
 
   "extension.route": {

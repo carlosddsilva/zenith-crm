@@ -31,7 +31,9 @@ async function validateContact(
 }
 
 function errorResponse(error: unknown) {
-  console.error("[zenith contact tags]", error);
+  console.error("[zenith contact tags]", {
+    errorCode: error instanceof Error ? error.name : "UnknownError",
+  });
 
   if (
     typeof error === "object" &&

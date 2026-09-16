@@ -44,11 +44,13 @@ export async function GET(
       .from(broadcastRecipients)
       .leftJoin(contacts, eq(broadcastRecipients.contactId, contacts.id))
       .where(eq(broadcastRecipients.broadcastId, id))
-      .orderBy(desc(broadcastRecipients.createdAt));
+      .orderBy(desc(broadcastRecipients.createdAt))
+      .limit(1_000);
 
     return NextResponse.json(items);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[api] broadcasts/[id]/recipients GET error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+    const status = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : 500;
+    return NextResponse.json({ error: status === 500 ? "Internal server error" : error instanceof Error ? error.message : "Request failed" }, { status });
   }
 }

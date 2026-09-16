@@ -83,26 +83,10 @@ export async function persistInboundMessageRealtime(
        */
       console.error(
         "[inbound realtime publish]",
-        error,
-      );
-    }
-
-    // Publish Automation Event
-    try {
-      const { publishEvent } = await import('@/lib/events/bus');
-      await publishEvent({
-        accountId: channel.accountId,
-        triggerType: 'message.received',
-        entityType: 'message',
-        entityId: result.messageId,
-        payload: {
-          messageId: result.messageId,
-          conversationId: result.conversationId,
-          contactId: result.contactId,
+        {
+          errorCode: error instanceof Error ? error.name : "UnknownError",
         },
-      });
-    } catch (evtErr) {
-      console.error('[EventBus] Failed to publish message.received:', evtErr);
+      );
     }
   }
 

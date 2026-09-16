@@ -236,6 +236,7 @@ export async function transitionCallState(
               ),
             ),
           )
+          .for("update")
           .limit(1);
 
       if (!current) {

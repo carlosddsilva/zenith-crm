@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { getZenithAccountContext } from "@/lib/auth/zenith-account";
+import { apiErrorResponse } from "@/lib/api/error-response";
 import { db } from "@/lib/db/client";
 import { callEvents, calls, contacts, voiceChannels } from "@/lib/db/schema";
 import { sanitizeCallEndReason, sanitizeCallFailureReason } from "@/lib/voice";
@@ -102,7 +103,6 @@ export async function GET(
       })),
     });
   } catch (error) {
-    console.error("[zenith-calls-detail] erro:", error);
-    return NextResponse.json({ error: "Erro interno no servidor" }, { status: 500 });
+    return apiErrorResponse(error, "[GET /api/zenith/calls/[id]]");
   }
 }

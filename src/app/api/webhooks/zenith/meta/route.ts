@@ -639,13 +639,18 @@ export async function POST(
             event.id,
             "failed",
             error instanceof Error
-              ? error.message
-              : "Unknown error",
+              ? error.name
+              : "UnknownError",
           );
 
           console.error(
-            "[meta inbound]",
-            error,
+            "[meta inbound] processing failed",
+            {
+              errorCode:
+                error instanceof Error
+                  ? error.name
+                  : "UnknownError",
+            },
           );
         }
       }

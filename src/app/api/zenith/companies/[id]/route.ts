@@ -1,8 +1,16 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { companies } from '@/lib/db/schema/companies';
-import { eq, and } from 'drizzle-orm';
+import {
+  activities,
+  companies,
+  contacts,
+  deals,
+  pipelineStages,
+  tasks,
+} from '@/lib/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 import { z } from 'zod';
 
 const updateCompanySchema = z.object({
@@ -17,56 +25,86 @@ const updateCompanySchema = z.object({
 });
 
 export async function GET(
-  req: Request,
-  { params }: any
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { accountId } = await requireZenithRole('agent');
+    const { id } = await params;
 
-    const company = await db.query.companies.findFirst({
-      where: (companies, { eq, and }) =>
-        and(eq(companies.id, params.id), eq(companies.accountId, accountId)),
-      with: {
-        contacts: {
-          orderBy: (contacts, { desc }) => [desc(contacts.createdAt)],
-        },
-        deals: {
-          orderBy: (deals, { desc }) => [desc(deals.createdAt)],
-          with: {
-            stage: true,
-          }
-        },
-        activities: {
-          orderBy: (activities, { desc }) => [desc(activities.occurredAt)],
-          limit: 10,
-        },
-        tasks: {
-          orderBy: (tasks, { desc }) => [desc(tasks.createdAt)],
-          where: (tasks, { eq }) => eq(tasks.status, 'pending'),
-        }
-      },
-    });
+    const [company] = await db
+      .select()
+      .from(companies)
+      .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+      .limit(1);
 
     if (!company) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    return NextResponse.json(company);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[GET /api/zenith/companies/:id]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    const [companyContacts, dealRows, companyActivities, companyTasks] =
+      await Promise.all([
+        db
+          .select()
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.companyId, id),
+              eq(contacts.accountId, accountId),
+            ),
+          )
+          .orderBy(desc(contacts.createdAt)),
+        db
+          .select({ deal: deals, stage: pipelineStages })
+          .from(deals)
+          .leftJoin(pipelineStages, eq(pipelineStages.id, deals.stageId))
+          .where(
+            and(eq(deals.companyId, id), eq(deals.accountId, accountId)),
+          )
+          .orderBy(desc(deals.createdAt)),
+        db
+          .select()
+          .from(activities)
+          .where(
+            and(
+              eq(activities.companyId, id),
+              eq(activities.accountId, accountId),
+            ),
+          )
+          .orderBy(desc(activities.occurredAt))
+          .limit(10),
+        db
+          .select()
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.companyId, id),
+              eq(tasks.accountId, accountId),
+              eq(tasks.status, 'pending'),
+            ),
+          )
+          .orderBy(desc(tasks.createdAt)),
+      ]);
+
+    return NextResponse.json({
+      ...company,
+      contacts: companyContacts,
+      deals: dealRows.map(({ deal, stage }) => ({ ...deal, stage })),
+      activities: companyActivities,
+      tasks: companyTasks,
+    });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[GET /api/zenith/companies/:id]');
   }
 }
 
 export async function PATCH(
   req: Request,
-  { params }: any
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { accountId } = await requireZenithRole('agent');
+    const { id } = await params;
     const body = await req.json();
 
     const result = updateCompanySchema.safeParse(body);
@@ -86,7 +124,7 @@ export async function PATCH(
         ...data,
         updatedAt: new Date(),
       })
-      .where(and(eq(companies.id, params.id), eq(companies.accountId, accountId)))
+      .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
       .returning();
 
     if (!updatedCompany) {
@@ -94,11 +132,7 @@ export async function PATCH(
     }
 
     return NextResponse.json(updatedCompany);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[PATCH /api/zenith/companies/:id]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[PATCH /api/zenith/companies/:id]');
   }
 }

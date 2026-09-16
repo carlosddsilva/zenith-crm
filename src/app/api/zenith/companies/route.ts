@@ -3,6 +3,7 @@ import { db } from '@/lib/db/client';
 import { companies } from '@/lib/db/schema/companies';
 import { eq, or, ilike, desc } from 'drizzle-orm';
 import { requireZenithRole } from '@/lib/auth/zenith-account';
+import { apiErrorResponse } from '@/lib/api/error-response';
 import { z } from 'zod';
 
 const createCompanySchema = z.object({
@@ -37,15 +38,12 @@ export async function GET(req: Request) {
         return and(...conditions);
       },
       orderBy: [desc(companies.createdAt)],
+      limit: 200,
     });
 
     return NextResponse.json(results);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[GET /api/zenith/companies]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[GET /api/zenith/companies]');
   }
 }
 
@@ -78,11 +76,7 @@ export async function POST(req: Request) {
       .returning();
 
     return NextResponse.json(newCompany);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.error('[POST /api/zenith/companies]', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: unknown) {
+    return apiErrorResponse(error, '[POST /api/zenith/companies]');
   }
 }

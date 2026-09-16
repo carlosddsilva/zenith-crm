@@ -12,11 +12,13 @@ export const runtime = "nodejs";
 export async function POST() {
   const token = await readSessionToken();
 
-  if (token) {
-    await revokeSessionToken(token);
+  try {
+    if (token) {
+      await revokeSessionToken(token);
+    }
+  } finally {
+    await clearSessionCookie();
   }
-
-  await clearSessionCookie();
 
   return NextResponse.json({
     success: true,
