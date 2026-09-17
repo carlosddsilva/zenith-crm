@@ -225,6 +225,13 @@
       "when": 1789593221016,
       "tag": "0031_red_carnage",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789650565007,
+      "tag": "0032_short_korath",
+      "breakpoints": true
     }
   ]
 }

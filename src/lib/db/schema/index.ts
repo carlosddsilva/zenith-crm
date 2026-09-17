@@ -18,3 +18,4 @@ export * from "./pipeline";
 export * from "./sla";
 export * from "./voice-calls";
 export * from "./voice";
+export * from "./media";

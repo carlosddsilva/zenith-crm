@@ -1,18 +1,20 @@
+
 /**
  * Shared loader for chat-media bytes.
  *
- * A `messages.media_url` is one of two very different things:
+ * A `messages.media_url` is one of two things:
  *
- *   1. INBOUND — `/api/zenith/media/<messageId>`, our auth-gated provider
- *      proxy. Provider media may require account credentials, so the browser
- *      cannot fetch it directly; API responses are intentionally `no-store`.
+ *   1. PROXIED — `/api/zenith/media/<id>`, our auth-gated proxy.
+ *      Used for both inbound media from providers AND our own outbound media
+ *      stored in the database (`media_objects`). API responses are `no-store`
+ *      to enforce strict tenant isolation, so we cache the Blob in memory.
  *
- *   2. OUTBOUND — a public HTTPS URL returned by the configured messaging
- *      provider. The browser fetches and caches it like any other image.
+ *   2. PUBLIC — a legacy public HTTPS URL (e.g. from an old public bucket).
+ *      The browser fetches and caches it natively.
  *
  * The thumbnail, the lightbox and a download all want the same bytes. For
- * (1) that would otherwise be three separate multi-MB round trips through
- * Meta, so proxy responses are memoised here.
+ * (1) that would otherwise be three separate multi-MB round trips, so proxy
+ * responses are memoised here.
  *
  * `Blob`s are cached, NOT object URLs: every consumer mints its own object
  * URL from the cached blob and revokes it on unmount. That way an LRU

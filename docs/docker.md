@@ -1,97 +1,72 @@
-# Zenith CRM com Docker
+# Operação Docker e produção
 
-O Zenith CRM está em migração do Supabase para infraestrutura própria. O Compose já sobe a infraestrutura alvo (`PostgreSQL + pgvector` e `Redis`) ao lado do app, enquanto o runtime legado ainda depende temporariamente das variáveis Supabase.
+## Pré-requisitos e configuração
 
-## Serviços
+Use Docker com Compose v2, copie `.env.local.example` para `.env.local` e substitua todos os placeholders. Obrigatórias: `POSTGRES_PASSWORD`, `DATABASE_URL`, `REDIS_URL`, `MESSAGING_CREDENTIALS_KEY`, `ENCRYPTION_KEY`, `ZENITH_WORKER_SECRET`, `MESSAGING_WEBHOOK_TOKEN` e `VOICE_WEBHOOK_TOKEN`. `META_APP_SECRET` é obrigatório para canal Meta. `NEXT_PUBLIC_SITE_URL`, locale, portas, `META_APP_ID` e `WACALLS_ALLOWED_ORIGIN` são opcionais conforme o recurso.
 
-```text
-app       Next.js 16
-postgres  PostgreSQL 16 + pgvector
-redis     Redis 7
-```
+Senhas inseridas em `DATABASE_URL` devem estar URL-encoded. Nunca coloque credenciais em variáveis `NEXT_PUBLIC_*`.
 
-PostgreSQL e Redis são publicados somente em `127.0.0.1` no host, evitando exposição direta pela interface pública da VPS.
+## Serviços e persistência
 
-## Quick start
+| Serviço | Função | Health |
+|---|---|---|
+| app | Next.js | `/api/health/live` e `/api/health/ready` |
+| postgres | dados duráveis | `pg_isready` |
+| redis | realtime/fila | `redis-cli ping` |
+| wacalls | voz | `/health/live` |
+| voice-events-worker | discovery/eventos | porta interna 3002 `/live`, `/ready` |
+| automation-events-worker | fila/outbox | porta interna 3002 `/live`, `/ready` |
+| broadcast-worker | recipients PostgreSQL | porta interna 3002 `/live`, `/ready` |
 
-1. Copie o template:
+Volumes: `postgres_data`, `redis_data` e `wacalls_data`. Preserve especialmente `postgres_data` e `wacalls_data`; remover volumes perde dados e sessões pareadas.
 
-   ```bash
-   cp .env.local.example .env.local
-   ```
+PostgreSQL, Redis e WaCalls são publicados somente em `127.0.0.1`. A porta do app é pública para receber tráfego do reverse proxy. Em produção, coloque nginx/Caddy/Traefik com TLS, limites de body/timeout e rate limit na frente dela.
 
-2. Troque ao menos `POSTGRES_PASSWORD` e preencha as credenciais legadas do Supabase enquanto a migração não terminou.
-
-3. Suba o ambiente:
-
-   ```bash
-   docker compose --env-file .env.local up --build -d
-   ```
-
-4. Verifique:
-
-   ```bash
-   docker compose --env-file .env.local ps
-   npm run infra:check
-   ```
-
-## Subir somente PostgreSQL e Redis
-
-Durante a migração é possível iniciar apenas a infraestrutura nova:
+## Startup e migrations
 
 ```bash
-docker compose --env-file .env.local up -d postgres redis
+npm ci
+npm run db:migrate
+docker compose --env-file .env.local build app
+docker compose --env-file .env.local up -d
+docker compose --env-file .env.local ps
 ```
 
-Isso permite trabalhar no novo schema sem depender do build do frontend.
+Ordem de recuperação: PostgreSQL, Redis, app, workers e WaCalls. `depends_on` ajuda no primeiro startup, mas workers também aplicam reconnect/retry. Execute migrations uma vez antes de promover o app; uma segunda execução deve ser no-op.
 
-## Endpoints no host
+## Backup PostgreSQL
 
-Por padrão:
-
-```text
-PostgreSQL  127.0.0.1:5432
-Redis       127.0.0.1:6379
-App         0.0.0.0:3000
+```bash
+npm run db:backup
+# ou destino explícito
+npm run db:backup -- D:/backups/zenith
 ```
 
-As portas podem ser alteradas em `.env.local` com `POSTGRES_PORT`, `REDIS_PORT` e `HOST_PORT`.
+O script usa `pg_dump --format=custom`, inclui timestamp, grava primeiro `.partial`, propaga exit code e só renomeia após sucesso. Copie os dumps para armazenamento externo cifrado. Retenção sugerida: 7 diários, 5 semanais e 12 mensais; aplique retenção no destino, não no servidor do banco.
 
-## Conexão do app
+## Teste seguro de restore
 
-Para execução local via `npm run dev`:
-
-```env
-DATABASE_URL=postgresql://zenith:<senha>@127.0.0.1:5432/zenith_crm
-REDIS_URL=redis://127.0.0.1:6379
+```bash
+npm run db:restore:test -- backups/zenith-AAAA-MM-DDTHH-MM-SS.dump
 ```
 
-Dentro do container `app`, o Compose substitui automaticamente os hosts por:
+O teste sobe um contêiner pgvector temporário sem volume nem porta host, restaura o dump, confirma tabelas no schema público e encerra o contêiner. Ele nunca aponta para o banco de desenvolvimento/produção.
 
-```text
-postgres:5432
-redis:6379
+## Redis e disaster recovery
+
+Redis usa AOF, mas contém estado transitório. Não restaure Redis como se fosse fonte de verdade. Após perda do Redis, suba PostgreSQL e app; o outbox repõe automações ainda pendentes. A fila `processing` é devolvida no startup do worker. Broadcasts retomam recipients `pending` do PostgreSQL; rows `sent`/`processing` não são reexpedidas automaticamente.
+
+## Restart controlado e diagnóstico
+
+```bash
+docker compose --env-file .env.local up -d --no-deps --force-recreate app
+docker compose --env-file .env.local up -d --no-deps --force-recreate automation-events-worker broadcast-worker voice-events-worker
+docker compose --env-file .env.local ps
+docker compose --env-file .env.local logs --since 5m app automation-events-worker broadcast-worker voice-events-worker
 ```
 
-## Extensões PostgreSQL
+Não reinicie PostgreSQL, Redis ou WaCalls durante uma promoção normal. Nunca use `docker compose down -v` em ambiente com dados.
 
-No primeiro bootstrap do volume são habilitadas:
+## Homologação de voz
 
-- `uuid-ossp`;
-- `pgcrypto`;
-- `vector`.
-
-O arquivo está em `infra/postgres/init/001_extensions.sql`.
-
-> Os scripts em `docker-entrypoint-initdb.d` são executados somente quando o volume do PostgreSQL é criado pela primeira vez.
-
-## Estado da migração
-
-A infraestrutura nova está pronta, mas o runtime atual ainda utiliza Supabase para:
-
-- Auth;
-- queries via SDK;
-- Realtime;
-- Storage.
-
-A retirada é incremental. Consulte `docs/MIGRATION_SUPABASE_TO_POSTGRES.md` e `docs/PROJECT_STATE.md`.
+`VOICE_LIVE_HOMOLOGATION=PENDING`: validar inbound, IVR, handoff, RX, TX e hangup com aparelhos reais antes de declarar o canal homologado.

@@ -17,12 +17,13 @@ function getKey(): Buffer {
     );
   }
 
-  const key =
-    Buffer.from(raw, "base64");
+  const key = /^[0-9a-f]{64}$/i.test(raw)
+    ? Buffer.from(raw, "hex")
+    : Buffer.from(raw, "base64");
 
   if (key.length !== 32) {
     throw new Error(
-      "MESSAGING_CREDENTIALS_KEY must decode to exactly 32 bytes",
+      "MESSAGING_CREDENTIALS_KEY must be a 32-byte hex or base64 key",
     );
   }
 

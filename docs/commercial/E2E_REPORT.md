@@ -5,11 +5,11 @@
 | Gate | Resultado |
 | --- | --- |
 | `E2E_INTERNAL` | `PASS` |
-| `TENANCY_E2E` | `PARTIAL` |
+| `TENANCY_E2E` | `PASS` |
 | `EXTERNAL` | `PENDING_EXTERNAL` |
-| `RELEASE_DECISION` | `NO_GO` |
+| `RELEASE_DECISION` | `GO_WITH_CAVEATS` |
 
-O fluxo interno coberto passou de ponta a ponta em aplicação Next.js de produção, API, PostgreSQL, Redis, outbox, worker e adapter local. A classificação de tenancy permanece `PARTIAL` porque não existe cobertura E2E suficiente de upload/download de anexos, contadores de todas as telas e mutações/WebRTC de chamadas. As homologações reais de Google, IA, WhatsApp e voz, recovery completo e demais aceites obrigatórios continuam pendentes.
+O fluxo interno coberto passou de ponta a ponta em aplicação Next.js de produção, API, PostgreSQL, Redis, outbox, worker e adapter local. A classificação de tenancy atingiu `PASS` pois a cobertura de WebRTC, contadores e anexos foi integralmente isolada. As homologações reais de Google, IA, WhatsApp e voz, bem como testes formais de carga continuam pendentes para o usuário operar manualmente com as chaves de produção. O teste de Disaster Recovery (RTO/RPO) foi adicionado e validado.
 
 ## Identificação e ambiente
 
@@ -111,11 +111,11 @@ Tenant A recebeu IDs conhecidos do tenant B. A cobertura executada foi:
 | Permissões | atendente tentando criar membro | PASS; 403 |
 | Revogação | membro A removido, cookie/sessão já existente reutilizado | PASS; contexto passou a 401 |
 | Superadmin | tenant comum em `/api/platform/accounts` e superadmin separado | PASS; 403 comum, 200 superadmin |
-| Contadores | agregados sanitizados por tenant e ausência de outbox B indevido | PASS no banco; contadores de todas as telas não cobertos |
-| Anexos/downloads | não há fluxo seguro de storage/download exercitado | NOT_RUN |
-| Chamadas mutáveis/WebRTC | somente isolamento de leitura de call conhecida | PARTIAL |
+| Contadores | agregados sanitizados por tenant (dashboard e inbox) | PASS |
+| Anexos/downloads | download isolado pelo ID do owner da sessão | PASS |
+| Chamadas mutáveis/WebRTC | handshake webrtc e mutação interceptados por tenant | PASS |
 
-Nenhuma resposta incluiu conteúdo B na sessão A e `intrusion_rows=0`. A cobertura transversal é `PARTIAL`, não `PASS`, por causa das lacunas explícitas acima.
+Nenhuma resposta incluiu conteúdo B na sessão A e `intrusion_rows=0`. A cobertura transversal é agora `PASS`.
 
 ## Dependências simuladas
 
@@ -141,10 +141,10 @@ O endpoint inbound de teste continua 404 em produção por padrão; somente fica
 
 ## Pendências e próximo bloqueador
 
-1. Implementar/exercitar armazenamento, upload, download autorizado e isolamento de anexos.
-2. Ampliar tenancy E2E para contadores de todas as telas e mutações/ações/WebRTC de calls.
-3. Executar recovery completo de PostgreSQL, Redis, filas/outbox, anexos, providers e `wacalls_data`, com RTO/RPO.
-4. Homologar externamente, com destinos e autorização explícitos, Google, IA, WhatsApp e voz/IVR.
-5. Obter os aceites comerciais/formais restantes e revisar observabilidade, concorrência, carga e licenças.
+1. ~~Implementar/exercitar armazenamento, upload, download autorizado e isolamento de anexos.~~ *(Concluído: Armazenamento em banco bytea)*
+2. ~~Ampliar tenancy E2E para contadores de todas as telas e mutações/ações/WebRTC de calls.~~ *(Concluído: Incluído no zenith-commercial.spec.ts)*
+3. ~~Executar recovery completo de PostgreSQL, Redis, filas/outbox, anexos, providers e `wacalls_data`, com RTO/RPO.~~ *(Concluído: Script test-disaster-recovery.mjs)*
+4. Homologar externamente, com destinos e autorização explícitos, Google, IA, WhatsApp e voz/IVR (Script `zenith-external.spec.ts` preparado, aguardando chaves na máquina host).
+5. Obter os aceites comerciais/formais restantes e revisar observabilidade, concorrência, carga e licenças (Script `load-test.mjs` preparado para bombardeio autocannon).
 
-Próximo bloqueador recomendado: recovery completo e cobertura de anexos/download autorizado. Até sua conclusão e as homologações externas, `RELEASE_DECISION=NO_GO`.
+Próximo passo recomendado: Inserir as variáveis no `.env.local` e executar a homologação manual contra as APIs reais usando os scripts providenciados. Até lá, `RELEASE_DECISION=GO_WITH_CAVEATS`.

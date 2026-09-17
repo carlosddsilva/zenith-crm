@@ -1,59 +1,36 @@
-# Zenith CRM — arquitetura alvo
-
-## Objetivo
-
-Transformar o fork do WaCRM em uma plataforma self-hosted, multi-tenant e multi-provider, sem dependência estrutural do Supabase.
-
-## Arquitetura alvo
+# Arquitetura Zenith CRM
 
 ```text
-Browser / PWA
-    |
-    v
-Next.js 16 / React 19
-    |
-    +-- PostgreSQL 16 + pgvector
-    +-- Redis
-    +-- S3 compatível
-    |
-    +-- MessagingProvider
-    |      +-- Meta Cloud API
-    |      +-- Evolution API
-    |
-    +-- VoiceProvider
-           +-- WaCalls
+Browser
+  -> Next.js 16 (Zenith session + account context)
+       -> PostgreSQL 16 / Drizzle (dados duráveis)
+       -> Redis 7 (realtime + fila efêmera)
+       -> MessagingProvider
+            -> Meta Cloud API
+            -> Evolution API
+       -> VoiceProvider -> WaCalls
+       -> workers de automação, broadcast e voz
 ```
 
 ## Princípios
 
-1. PostgreSQL é a fonte de verdade do CRM.
-2. Todo dado de negócio pertence a um `account_id`.
-3. Providers de mensageria não podem contaminar a regra de negócio da Inbox.
-4. Voz é um domínio separado de mensagens.
-5. Credenciais externas são armazenadas cifradas.
-6. O isolamento multi-tenant será aplicado na aplicação e reforçado pelo PostgreSQL.
-7. Evolution API é uma integração externa; o Zenith CRM não administra a instalação da Evolution.
-8. WaCalls é um serviço de voz separado do core do CRM.
+1. PostgreSQL é a fonte de verdade; Redis nunca é a única cópia de um efeito de negócio.
+2. Toda query de recurso combina o identificador com `account_id` ou passa por relação já limitada ao tenant.
+3. Sessões usam token aleatório de 256 bits, apenas o SHA-256 é persistido, e o cookie é `httpOnly`, `sameSite=lax`, `secure` em produção.
+4. Credenciais de provider são cifradas no banco e nunca usam variável `NEXT_PUBLIC_*`.
+5. Endpoints `/api/zenith/workers/*` exigem `ZENITH_WORKER_SECRET` com comparação timing-safe e não aceitam cookie humano como autenticação.
+6. Mensageria e voz dependem de adapters; regras da Inbox não dependem de SDK de provider.
 
-## Camadas previstas
+## Filas e recuperação
 
-```text
-src/lib/
-  auth/
-  db/
-  tenant/
-  redis/
-  realtime/
-  storage/
-  messaging/
-    contracts/
-    meta/
-    evolution/
-  voice/
-    contracts/
-    wacalls/
-```
+- `zenith:automation:events`: fila principal;
+- `zenith:automation:events:processing`: itens em processamento;
+- `zenith:automation:events:dead`: DLQ após três tentativas.
 
-## Estado de transição
+O worker devolve a fila `processing` para a principal no startup. A constraint `(automation_id, trigger_event_id)` torna repetição segura. O outbox PostgreSQL recupera falha de publicação no Redis.
 
-Nesta primeira fase, PostgreSQL e Redis próprios já existem no Compose, mas o código legado ainda utiliza Supabase para banco/auth/realtime/storage. A substituição será incremental para manter o projeto compilável durante a migração.
+Broadcast não usa Redis: recipients são reclamados atomicamente no PostgreSQL como `processing`. Um restart não reenvia rows `sent` nem `processing`; itens ambíguos exigem reconciliação manual para privilegiar ausência de duplicata.
+
+## Segurança de borda
+
+O Proxy do Next protege páginas por presença otimista do cookie, valida Origin nas mutações cookie-authenticated e rejeita UUIDs malformados antes do PostgreSQL. A autorização real continua nos Route Handlers. APIs não emitem CORS público; WaCalls nega CORS cross-origin por padrão e aceita somente `WACALLS_ALLOWED_ORIGIN` explícito.

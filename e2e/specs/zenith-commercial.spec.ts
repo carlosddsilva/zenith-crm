@@ -557,6 +557,7 @@ test.describe.serial("Zenith CRM commercial journey and transversal tenancy", ()
       ["GET", `/api/zenith/followups/${tenantB.followupId}`, 404],
       ["GET", `/api/zenith/contacts/${tenantB.contactId}/export`, 404],
       ["GET", `/api/zenith/calls/${callB.id}`, 404],
+      ["POST", `/api/zenith/calls/${callB.id}/webrtc`, 404, { sdp: "mock" }],
       ["PATCH", `/api/zenith/conversations/${conversationA}`, 400, { assigned_agent_id: agentB.id }],
       ["POST", "/api/zenith/tasks", 400, { title: "intrusion", contactId: tenantB.contactId }],
       ["POST", "/api/zenith/conversations", 404, { contact_id: tenantB.contactId }],
@@ -578,6 +579,11 @@ test.describe.serial("Zenith CRM commercial journey and transversal tenancy", ()
       await expectStatus(pageA, "GET", "/api/zenith/conversations?search=Contato%20E2E%20B", 200),
     );
     expect(radarB.items).toEqual([]);
+
+    const dashboardA = object(await expectStatus(pageA, "GET", "/api/zenith/dashboard", 200));
+    // Verify dashboard doesn't leak B's counts (Tenant A created exactly 1 of each)
+    expect(Number(dashboardA.totalContacts)).toBe(1);
+    expect(Number(dashboardA.totalDeals)).toBe(1);
 
     const [outboxAfter] = await sql`
       select count(*)::int as count from automation_events_outbox
