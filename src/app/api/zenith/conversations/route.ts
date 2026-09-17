@@ -5,7 +5,9 @@ import {
   count,
   desc,
   eq,
+  ilike,
   inArray,
+  or,
 } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
@@ -183,6 +185,9 @@ export async function GET(
     const slaStatus =
       url.searchParams.get("slaStatus");
 
+    const search =
+      url.searchParams.get("search")?.trim() ?? "";
+
     const conditions = [
       eq(
         conversations.accountId,
@@ -228,6 +233,20 @@ export async function GET(
       );
     }
 
+    if (search) {
+      const pattern = `%${search}%`;
+      const searchCondition = or(
+        ilike(contacts.name, pattern),
+        ilike(contacts.phone, pattern),
+        ilike(contacts.email, pattern),
+        ilike(contacts.company, pattern),
+      );
+
+      if (searchCondition) {
+        conditions.push(searchCondition);
+      }
+    }
+
     const where =
       and(...conditions);
 
@@ -236,6 +255,19 @@ export async function GET(
         total: count(),
       })
       .from(conversations)
+      .innerJoin(
+        contacts,
+        and(
+          eq(
+            contacts.id,
+            conversations.contactId,
+          ),
+          eq(
+            contacts.accountId,
+            context.accountId,
+          ),
+        ),
+      )
       .where(where);
 
     const rows = await db

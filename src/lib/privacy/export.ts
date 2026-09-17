@@ -4,6 +4,15 @@ import { aiMemories, contacts, notes, activities, contactTags, tags } from "@/li
 import { ZenithAccountContext } from "@/lib/auth/zenith-account";
 import { logAuditAction } from "@/lib/audit/logger";
 
+export class ContactExportNotFoundError extends Error {
+  readonly status = 404;
+
+  constructor() {
+    super("Contact not found or access denied.");
+    this.name = "ContactExportNotFoundError";
+  }
+}
+
 export async function exportContactData(context: ZenithAccountContext, contactId: string) {
   // 1. Fetch Contact
   const [contact] = await db
@@ -13,7 +22,7 @@ export async function exportContactData(context: ZenithAccountContext, contactId
     .limit(1);
 
   if (!contact) {
-    throw new Error("Contact not found or access denied.");
+    throw new ContactExportNotFoundError();
   }
 
   // 2. Fetch Tags

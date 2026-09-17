@@ -189,6 +189,20 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")("CRM-06 Cross-Tenant Securi
     expect(body.items || body).toEqual([]);
   });
 
+  it("filtra a busca de conversations pelo contato sem atravessar tenants", async () => {
+    mockTenantB();
+
+    const req = new Request(
+      "http://localhost/api/zenith/conversations?search=Contact%20A",
+    );
+    const res = await getConversations(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.items).toEqual([]);
+    expect(body.pagination.total).toBe(0);
+  });
+
   it("rejeita relacionamentos e IDs de stage pertencentes a outro tenant", async () => {
     mockTenantB();
 

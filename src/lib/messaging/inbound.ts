@@ -600,7 +600,7 @@ export async function persistInboundMessage(
             sql`${conversations.unreadCount} + 1`,
 
           firstUnrepliedMessageAt:
-            sql`COALESCE(${conversations.firstUnrepliedMessageAt}, ${occurredAt})`,
+            sql`COALESCE(${conversations.firstUnrepliedMessageAt}, ${occurredAt.toISOString()}::timestamptz)`,
 
           updatedAt:
             new Date(),

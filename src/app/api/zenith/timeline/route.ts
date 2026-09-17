@@ -37,13 +37,23 @@ export async function GET(req: Request) {
         'message' as type, 
         m.created_at as occurred_at, 
         m.content_text as title, 
-        m.status,
-        m.sender_type as "actor",
-        json_build_object('mediaUrl', m.media_url, 'contentType', m.content_type) as metadata
+        m.status::text as status,
+        m.sender_type::text as "actor",
+        json_build_object('mediaUrl', m.media_url, 'contentType', m.content_type)::jsonb as metadata
       FROM messages m
       JOIN conversations c ON m.conversation_id = c.id
       WHERE c.account_id = ${accountId} AND c.contact_id = ${contactId}
-    ` : sql`SELECT NULL::uuid as id WHERE false`; // Empty if dealId
+    ` : sql`
+      SELECT
+        NULL::uuid as id,
+        NULL::text as type,
+        NULL::timestamptz as occurred_at,
+        NULL::text as title,
+        NULL::text as status,
+        NULL::text as "actor",
+        NULL::jsonb as metadata
+      WHERE false
+    `; // Empty if dealId
 
     const timelineQuery = sql`
       WITH timeline AS (
@@ -52,9 +62,9 @@ export async function GET(req: Request) {
           'task' as type, 
           created_at as occurred_at, 
           title, 
-          status,
+          status::text as status,
           created_by_user_id::text as "actor",
-          json_build_object('priority', priority, 'dueAt', due_at) as metadata
+          json_build_object('priority', priority, 'dueAt', due_at)::jsonb as metadata
         FROM tasks 
         WHERE account_id = ${accountId} AND ${baseCondition}
 
@@ -65,9 +75,9 @@ export async function GET(req: Request) {
           'appointment' as type, 
           created_at as occurred_at, 
           title, 
-          status,
+          status::text as status,
           organizer_user_id::text as "actor",
-          json_build_object('startTime', start_time, 'endTime', end_time, 'timezone', timezone) as metadata
+          json_build_object('startTime', start_time, 'endTime', end_time, 'timezone', timezone)::jsonb as metadata
         FROM appointments 
         WHERE account_id = ${accountId} AND ${baseCondition}
 
@@ -77,8 +87,8 @@ export async function GET(req: Request) {
           id, 
           'activity' as type, 
           occurred_at, 
-          type as title, 
-          'completed' as status,
+          type::text as title,
+          'completed'::text as status,
           actor_user_id::text as "actor",
           metadata
         FROM activities 
@@ -103,10 +113,10 @@ export async function GET(req: Request) {
           id, 
           'call' as type, 
           created_at as occurred_at, 
-          direction as title, 
-          state as status,
+          direction::text as title,
+          state::text as status,
           assigned_agent_id::text as "actor",
-          json_build_object('provider', provider, 'from', from_phone, 'to', to_phone) as metadata
+          json_build_object('provider', provider, 'from', from_phone, 'to', to_phone)::jsonb as metadata
         FROM calls 
         WHERE account_id = ${accountId} AND contact_id = ${contactId || null} -- Calls are strictly contact bound
 

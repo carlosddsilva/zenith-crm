@@ -44,7 +44,9 @@ export async function POST(
    */
   if (
     process.env.NODE_ENV ===
-    "production"
+      "production" &&
+    process.env.ZENITH_E2E_TEST_ADAPTERS !==
+      "true"
   ) {
     return new Response(
       "Not Found",

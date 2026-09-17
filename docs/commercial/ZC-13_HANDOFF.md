@@ -89,3 +89,22 @@ Os handoffs documentam o que foi efetivamente comprovado; gates não executados 
 5. Aceites formais dos módulos e revisão de licenças já apontada no gate anterior.
 
 Compilação aprovada encerra este bloqueador interno, não a liberação comercial.
+
+## Atualização 2026-09-17 — E2E integrado e tenancy transversal
+
+Esta seção preserva o registro anterior e o atualiza com a etapa posterior executada sobre o HEAD `5ad91f1ea72aaba383ebf702c02651083c057124`. O relatório detalhado está em `docs/commercial/E2E_REPORT.md`.
+
+| Gate | Estado atualizado | Evidência |
+| --- | --- | --- |
+| `E2E_INTERNAL` | `PASS` | Playwright 1/1, 34,2 s, exit 0; UI, API, worker, PostgreSQL, Redis e outbox reais |
+| `TENANCY_E2E` | `PARTIAL` | contatos, deals, tarefas, conversas, mensagens, automações, follow-ups, radar/SLA, export, calls-read, realtime, papéis, superadmin e revogação cobertos; anexos e calls mutáveis/WebRTC pendentes |
+| `TYPECHECK` | `PASS` | `npm.cmd run typecheck`, exit 0 |
+| `LINT` | `PASS` | `npm.cmd run lint`, 0 erros e 220 warnings |
+| `REGRESSION` | `PASS` | 51 arquivos aprovados, 4 ignorados; 445 testes aprovados, 21 ignorados; PostgreSQL cross-tenant 7/7 |
+| `BUILD_LINUX` | `PASS` | imagem `zenith-crm-app:local`, manifest list `sha256:f096c12ad4acb7036835d24c993b371db031f5b00d609e5ae86e1df81a0f4915` |
+| `EXTERNAL` | `PENDING_EXTERNAL` | nenhum provider real acionado |
+| Recovery completo | `NOT_RUN` | permanece bloqueador |
+
+Foram corrigidos defeitos reproduzidos na timeline PostgreSQL, persistência inbound/SLA, status do export cross-tenant e busca do radar/conversas. Também foram corrigidos duas traduções ausentes e o harness/configuração de lint. A execução final usou somente dados sintéticos, adapter WhatsApp local e infraestrutura E2E isolada.
+
+`RELEASE_DECISION=NO_GO` permanece inalterado. O próximo bloqueador é recovery completo e cobertura de anexos/download autorizado, seguido pelas homologações externas e demais aceites formais.

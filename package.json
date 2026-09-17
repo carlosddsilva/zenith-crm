@@ -40,6 +40,12 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:build": "node e2e/support/build-next.mjs",
+    "test:e2e:infra:up": "docker compose -p zenith-crm-e2e -f e2e/docker-compose.yml up -d --wait postgres redis",
+    "test:e2e:services:up": "docker compose -p zenith-crm-e2e -f e2e/docker-compose.yml up -d --wait app automation-worker",
+    "test:e2e:infra:down": "docker compose -p zenith-crm-e2e -f e2e/docker-compose.yml down -v --remove-orphans",
+    "test:e2e:migrate": "node --env-file=e2e/.env.e2e ./node_modules/drizzle-kit/bin.cjs migrate",
     "test:integration": "node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts src/app/api/zenith/contacts/crm06-cross-tenant.test.ts src/app/api/zenith/dashboard/crm07-aggregate.test.ts",
     "test:google-calendar-db": "node scripts/test-google-calendar-db.mjs",
     "test:ai-db": "node ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts src/lib/ai/ai-db.integration.test.ts",
@@ -82,6 +88,7 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "1.51.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^26",
     "@types/react": "^19",
@@ -89,6 +96,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "eslint-plugin-react-hooks": "7.0.1",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "shadcn": "^4.16.2",

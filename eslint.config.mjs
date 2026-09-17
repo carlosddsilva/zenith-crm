@@ -1,6 +1,7 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import reactHooks from "eslint-plugin-react-hooks";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -8,6 +9,9 @@ const eslintConfig = defineConfig([
   {
     // These are tracked legacy-typing/performance debts. Keep them visible in
     // CI without making production validation fail on pre-existing code.
+    plugins: {
+      "react-hooks": reactHooks,
+    },
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
       "react-hooks/set-state-in-effect": "warn",
@@ -18,6 +22,7 @@ const eslintConfig = defineConfig([
     // Default ignores of eslint-config-next:
     ".next/**",
     ".next*/**",
+    ".cache/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

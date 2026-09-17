@@ -1,0 +1,94 @@
+name: zenith-crm-e2e
+
+services:
+  app:
+    image: zenith-crm-app:local
+    environment:
+      DATABASE_URL: postgresql://zenith_e2e:zenith-e2e-only@postgres:5432/zenith_e2e
+      REDIS_URL: redis://redis:6379
+      AUTH_SESSION_COOKIE_NAME: zenith_e2e_session
+      AUTH_SESSION_DAYS: 1
+      MESSAGING_CREDENTIALS_KEY: ERERERERERERERERERERERERERERERERERERERERERE=
+      ENCRYPTION_KEY: 2222222222222222222222222222222222222222222222222222222222222222
+      ZENITH_WORKER_SECRET: zenith-e2e-worker-only
+      MESSAGING_WEBHOOK_TOKEN: zenith-e2e-webhook-only
+      ZENITH_E2E_TEST_ADAPTERS: "true"
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3100
+      NEXT_PUBLIC_APP_LOCALE: en
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "127.0.0.1:3100:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+
+  automation-worker:
+    image: zenith-crm-app:local
+    command: ["node", "scripts/automation-worker.mjs"]
+    environment:
+      ZENITH_APP_URL: http://app:3000
+      ZENITH_WORKER_SECRET: zenith-e2e-worker-only
+      WORKER_HEALTH_PORT: 3102
+    ports:
+      - "127.0.0.1:3102:3102"
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3102/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: zenith_e2e
+      POSTGRES_USER: zenith_e2e
+      POSTGRES_PASSWORD: zenith-e2e-only
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ../infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zenith_e2e -d zenith_e2e"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
