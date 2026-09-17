@@ -94,6 +94,8 @@ Compilação aprovada encerra este bloqueador interno, não a liberação comerc
 
 Esta seção preserva o registro anterior e o atualiza com a etapa posterior executada sobre o HEAD `5ad91f1ea72aaba383ebf702c02651083c057124`. O relatório detalhado está em `docs/commercial/E2E_REPORT.md`.
 
+O candidato de código e testes desta etapa é `d10ce57589598cd85626aa39204fa11d994a9044`; o commit documental posterior não altera o runtime validado.
+
 | Gate | Estado atualizado | Evidência |
 | --- | --- | --- |
 | `E2E_INTERNAL` | `PASS` | Playwright 1/1, 34,2 s, exit 0; UI, API, worker, PostgreSQL, Redis e outbox reais |

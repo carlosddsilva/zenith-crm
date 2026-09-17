@@ -18,6 +18,7 @@ O fluxo interno coberto passou de ponta a ponta em aplicação Next.js de produ�
 | Data | 2026-09-17, `America/Cuiaba` |
 | Baseline informado | `170cf880a5c8e4adcf7ef0ab34bf9da6882975b6` |
 | HEAD encontrado antes desta etapa | `5ad91f1ea72aaba383ebf702c02651083c057124` |
+| SHA do candidato E2E | `d10ce57589598cd85626aa39204fa11d994a9044` |
 | Imagem final testada | `zenith-crm-app:local`, manifest list `sha256:f096c12ad4acb7036835d24c993b371db031f5b00d609e5ae86e1df81a0f4915` |
 | Aplicação | Next.js 16.3.5, imagem Linux Node 22, `127.0.0.1:3100` |
 | Worker | `automation-worker`, `127.0.0.1:3102` |
